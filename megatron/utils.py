@@ -150,9 +150,9 @@ def get_ltor_masks_and_position_ids(data,
         att_mask_batch = micro_batch_size
     else:
         att_mask_batch = 1
-    attention_mask = torch.tril(torch.ones(
-        (att_mask_batch, seq_length, seq_length), device=data.device)).view(
-            att_mask_batch, 1, seq_length, seq_length)
+    # attention_mask = torch.tril(torch.ones(
+    #     (att_mask_batch, seq_length, seq_length), device=data.device)).view(
+    #         att_mask_batch, 1, seq_length, seq_length)
 
     # Loss mask.
     loss_mask = torch.ones(data.size(), dtype=torch.float, device=data.device)
@@ -190,7 +190,8 @@ def get_ltor_masks_and_position_ids(data,
                     prev_index = i + 1
 
     # Convert attention mask to binary:
-    attention_mask = (attention_mask < 0.5)
+    # attention_mask = (attention_mask < 0.5)
+    attention_mask = None
 
     return attention_mask, loss_mask, position_ids
 
@@ -257,14 +258,22 @@ def throughput_calculator(model, args, iteration_time, total_iterations):
     # https://arxiv.org/pdf/2104.04473.pdf).
     # The factor of 4 is when used with activation check-pointing,
     # otherwise it will be 3.
-    # checkpoint_activations_factor = 4 if args.checkpoint_activations else 3
-    checkpoint_activations_factor = 4 if args.recompute_granularity == 'selective' else 3
+    checkpoint_activations_factor = 4 if args.checkpoint_activations else 3
+    # checkpoint_activations_factor = 4 if args.recompute_granularity == 'selective' else 3
    
     seq_len = args.seq_length
     if hasattr(args, 'actual_seq_length'):
         seq_len = args.actual_seq_length
     flops_per_iteration = (24 * checkpoint_activations_factor * batch_size * seq_len * num_layers * (hidden_size**2)) * (1. + (seq_len / (6. * hidden_size)) + (vocab_size / (16. * num_layers * hidden_size)))
     tflops = flops_per_iteration / (elapsed_time_per_iter * args.world_size * (10**12))
+
+    # print(f"throughput_calculator flops_per_iteration={flops_per_iteration}"
+    #       + f" checkpoint_activations_factor={checkpoint_activations_factor}"
+    #       + f" batch_size={batch_size}"
+    #       + f" seq_len={seq_len}"
+    #       + f" num_layers={num_layers}"
+    #       + f" vocab_size={vocab_size}")
+
     return samples_per_second, tflops, approx_parameters_in_billions
 
 def checkpoint_throughput_calculator(model, latency_second):
