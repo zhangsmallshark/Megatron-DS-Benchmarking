@@ -89,7 +89,9 @@ def set_global_variables(args):
     set_args(args)
 
     _build_num_microbatches_calculator(args)
-    _ = _build_tokenizer(args)
+
+    if args.vocab_file:
+        _ = _build_tokenizer(args)
     _set_tensorboard_writer(args)
     _set_adlr_autoresume(args)
     _set_timers(args)

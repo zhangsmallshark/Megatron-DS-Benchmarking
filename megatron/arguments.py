@@ -83,9 +83,10 @@ def validate_args(args, defaults={}):
         assert args.pipeline_model_parallel_size == 1, \
             "pipeline_model_parallel_size must be 1 if pipeline parallel is disabled"
     model_parallel_size = args.pipeline_model_parallel_size * \
-                          args.tensor_model_parallel_size
+                          args.tensor_model_parallel_size * \
+                          args.sequence_parallel_size
     assert args.world_size % model_parallel_size == 0, 'world size is not'\
-        ' divisible by tensor parallel size ({}) times pipeline parallel ' \
+        ' divisible by tensor parallel size ({}) times pipeline parallel times sequence parallel' \
         'size ({})'.format(args.world_size, args.tensor_model_parallel_size,
                            args.pipeline_model_parallel_size)
     args.data_parallel_size = args.world_size // model_parallel_size
@@ -847,7 +848,8 @@ def _add_training_args(parser):
                        help='Use Tutel optimization for MoE')
     group.add_argument('--inference', action='store_true',
                        help='Very basic inference mode: not allocating optim/lr - requires ZERO_STAGE=0')
-
+    group.add_argument('--sequence-parallel-size', type=int, default=1,
+                       help='Set DoP for DeepSpeed\'s sequence parallel.')
     return parser
 
 
@@ -1325,7 +1327,7 @@ def _add_zero_args(parser):
     """Text generate arguments."""
     group = parser.add_argument_group('ZeRO configurations', 'configurations')
 
-    group.add_argument("--zero-stage", type=int, default=1.0)
+    group.add_argument("--zero-stage", type=int, default=0)
     group.add_argument('--zero-reduce-scatter', action='store_true',
                        help='Use reduce scatter if specified')
     group.add_argument('--zero-contigious-gradients', action='store_true',

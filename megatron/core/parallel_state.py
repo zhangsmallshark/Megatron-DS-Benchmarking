@@ -44,6 +44,11 @@ _POSITION_EMBEDDING_GLOBAL_RANKS = None
 # rank when broadcasting from the first or last pipeline stage.
 _PIPELINE_GLOBAL_RANKS = None
 
+##Sequence parallel group
+_SEQUENCE_PARALLEL_GROUP = None
+_SEQUENCE_PARALLEL_WORLD_SIZE = None
+_SEQUENCE_PARALLEL_RANK = None
+
 # A list of global ranks for each data parallel group to ease calculation of the source
 # rank when broadcasting weights from src to all other data parallel ranks
 _DATA_PARALLEL_GLOBAL_RANKS = None
@@ -55,6 +60,7 @@ _GLOBAL_MEMORY_BUFFER = None
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
+    sequence_parallel_size: int = 1,
     virtual_pipeline_model_parallel_size: Optional[int] = None,
     pipeline_model_parallel_split_rank: Optional[int] = None,
     use_fp8: bool = False,
@@ -129,12 +135,19 @@ def initialize_model_parallel(
             f"({tensor_model_parallel_size}) x pipeline_model_parallel_size ({pipeline_model_parallel_size})"
         )
 
-    data_parallel_size: int = world_size // (tensor_model_parallel_size *
+    #Temporarily assert tensor and pipeline, TODO: remove later
+    if sequence_parallel_size > 1:
+        assert tensor_model_parallel_size == 1 and pipeline_model_parallel_size == 1, \
+        'DeepSpeed\'s sequence parallel does not work with tensor parallel or pipeline parallel'
+
+
+    data_parallel_size: int = world_size // (tensor_model_parallel_size * sequence_parallel_size *
                                              pipeline_model_parallel_size)
 
     num_tensor_model_parallel_groups: int  = world_size // tensor_model_parallel_size
     num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     num_data_parallel_groups: int = world_size // data_parallel_size
+    num_sequence_parallel_groups: int = world_size // sequence_parallel_size
 
     if virtual_pipeline_model_parallel_size is not None:
         if not pipeline_model_parallel_size > 2:
@@ -160,8 +173,13 @@ def initialize_model_parallel(
     for i in range(pipeline_model_parallel_size):
         start_rank = i * num_pipeline_model_parallel_groups
         end_rank = (i + 1) * num_pipeline_model_parallel_groups
-        for j in range(tensor_model_parallel_size):
-            ranks = range(start_rank + j, end_rank, tensor_model_parallel_size)
+        if sequence_parallel_size > 1:
+            tp_or_sp_size = sequence_parallel_size
+        else:
+            tp_or_sp_size = tensor_model_parallel_size
+
+        for j in range(tp_or_sp_size):
+            ranks = range(start_rank + j, end_rank, tp_or_sp_size)
             all_data_parallel_group_ranks.append(list(ranks))
             group = torch.distributed.new_group(ranks)
             group_gloo = torch.distributed.new_group(ranks, backend="gloo")
@@ -190,6 +208,18 @@ def initialize_model_parallel(
         group = torch.distributed.new_group(ranks)
         if rank in ranks:
             _TENSOR_MODEL_PARALLEL_GROUP = group
+
+    # Build the sequence parallel groups.
+    global _SEQUENCE_PARALLEL_GROUP
+    assert _SEQUENCE_PARALLEL_GROUP is None, \
+        'sequence parallel group is already initialized'
+    for i in range(num_sequence_parallel_groups):
+        ranks = range(i * sequence_parallel_size,
+                      (i + 1) * sequence_parallel_size)
+        group = torch.distributed.new_group(ranks)
+        if rank in ranks:
+            _SEQUENCE_PARALLEL_GROUP = group
+
 
     # Build the pipeline model-parallel groups and embedding groups
     # (first and last rank in each pipeline model-parallel group).
@@ -274,12 +304,21 @@ def model_parallel_is_initialized():
         return False
     return True
 
+def sequence_parallel_is_initialized():
+    """Check if sequence and data parallel groups are initialized."""
+    if _SEQUENCE_PARALLEL_GROUP is None or \
+        _DATA_PARALLEL_GROUP is None:
+        return False
+    return True
 
 def get_model_parallel_group():
+    ''' SAGE HACK TODO: fix
     """Get the model parallel group the caller rank belongs to."""
     assert _MODEL_PARALLEL_GROUP is not None, \
         'model parallel group is not initialized'
     return _MODEL_PARALLEL_GROUP
+    '''
+    return get_tensor_model_parallel_group()
 
 
 def get_tensor_model_parallel_group():
@@ -295,6 +334,11 @@ def get_pipeline_model_parallel_group():
         'pipeline_model parallel group is not initialized'
     return _PIPELINE_MODEL_PARALLEL_GROUP
 
+def get_sequence_parallel_group():
+    """Get the sequence parallel group the caller rank belongs to."""
+    assert _SEQUENCE_PARALLEL_GROUP is not None, \
+        'sequence parallel group is not initialized'
+    return _SEQUENCE_PARALLEL_GROUP
 
 def get_data_parallel_group():
     """Get the data parallel group the caller rank belongs to."""
@@ -336,6 +380,10 @@ def set_tensor_model_parallel_world_size(world_size):
     global _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE
     _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE = world_size
 
+def set_sequence_parallel_world_size(world_size):
+    """Set the sequence  parallel size"""
+    global _SEQUENCE_PARALLEL_WORLD_SIZE
+    _SEQUENCE_PARALLEL_WORLD_SIZE = world_size
 
 def set_pipeline_model_parallel_world_size(world_size):
     """Set the pipeline model parallel size"""
@@ -354,6 +402,12 @@ def get_tensor_model_parallel_world_size():
         return _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE
     return torch.distributed.get_world_size(group=get_tensor_model_parallel_group())
 
+def get_sequence_parallel_world_size():
+    """Return world size for the sequence parallel group."""
+    global _SEQUENCE_PARALLEL_WORLD_SIZE
+    if _SEQUENCE_PARALLEL_WORLD_SIZE is not None:
+        return _SEQUENCE_PARALLEL_WORLD_SIZE
+    return torch.distributed.get_world_size(group=get_sequence_parallel_group())
 
 def get_pipeline_model_parallel_world_size():
     """Return world size for the pipeline model parallel group."""
@@ -379,6 +433,14 @@ def set_tensor_model_parallel_rank(rank):
     global _MPU_TENSOR_MODEL_PARALLEL_RANK
     _MPU_TENSOR_MODEL_PARALLEL_RANK = rank
 
+def get_model_parallel_rank():
+    assert get_pipeline_model_parallel_world_size() == 1, "legacy get_model_parallel_rank is only supported if PP is disabled"
+    return get_tensor_model_parallel_rank()
+
+def set_sequence_parallel_rank(rank):
+    """Set sequence parallel rank."""
+    global _SEQUENCE_PARALLEL_RANK
+    _SEQUENCE_PARALLEL_RANK = rank
 
 def set_pipeline_model_parallel_rank(rank):
     """Set pipeline model parallel rank."""
@@ -400,6 +462,7 @@ def get_tensor_model_parallel_rank():
     return torch.distributed.get_rank(group=get_tensor_model_parallel_group())
 
 
+
 def get_pipeline_model_parallel_rank():
     """Return my rank for the pipeline model parallel group."""
     global _MPU_PIPELINE_MODEL_PARALLEL_RANK
@@ -412,6 +475,13 @@ def get_pipeline_model_parallel_split_rank():
     """Return pipeline model parallel split rank."""
     global _PIPELINE_MODEL_PARALLEL_SPLIT_RANK
     return _PIPELINE_MODEL_PARALLEL_SPLIT_RANK
+
+def get_sequence_parallel_rank():
+    """Return my rank for the sequence parallel group."""
+    global _SEQUENCE_PARALLEL_RANK
+    if _SEQUENCE_PARALLEL_RANK is not None:
+        return _SEQUENCE_PARALLEL_RANK
+    return torch.distributed.get_rank(group=get_sequence_parallel_group())
 
 
 def is_pipeline_first_stage(ignore_virtual=False):
@@ -603,6 +673,8 @@ def destroy_model_parallel():
     _PIPELINE_MODEL_PARALLEL_GROUP = None
     global _DATA_PARALLEL_GROUP
     _DATA_PARALLEL_GROUP = None
+    global SEQUENCE_PARALLEL_GROUP
+    _SEQUENCE_PARALLEL_GROUP = None
     global _EMBEDDING_GROUP
     _EMBEDDING_GROUP = None
     global _POSITION_EMBEDDING_GROUP

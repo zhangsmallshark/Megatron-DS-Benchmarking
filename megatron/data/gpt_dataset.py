@@ -393,9 +393,16 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
     counts = torch.cuda.LongTensor([1])
     torch.distributed.all_reduce(counts, group=mpu.get_data_parallel_group())
     torch.distributed.all_reduce(counts, group=mpu.get_pipeline_model_parallel_group())
-    assert counts[0].item() == (
-        torch.distributed.get_world_size() //
-        torch.distributed.get_world_size(group=mpu.get_tensor_model_parallel_group()))
+    torch.distributed.barrier()
+
+    if mpu.get_sequence_parallel_world_size() > 1:
+        assert counts[0].item() == (
+            torch.distributed.get_world_size() //
+            torch.distributed.get_world_size(group=mpu.get_sequence_parallel_group()))
+    else:
+        assert counts[0].item() == (
+            torch.distributed.get_world_size() //
+            torch.distributed.get_world_size(group=mpu.get_tensor_model_parallel_group()))
 
     # Load mappings.
     start_time = time.time()

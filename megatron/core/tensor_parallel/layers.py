@@ -19,6 +19,8 @@ from megatron.core.parallel_state import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
     get_tensor_model_parallel_group,
+    get_sequence_parallel_world_size,
+    get_sequence_parallel_rank,
     get_global_memory_buffer,
 )
 from .mappings import (
@@ -219,6 +221,35 @@ class VocabParallelEmbedding(torch.nn.Module):
         return output
 
 
+class SeqParallelPositionEmbedding(torch.nn.Module):
+    """Embedding parallelized in the vocabulary dimension.
+
+    This is mainly adapted from torch.nn.Embedding and all the default
+    values are kept.
+    Arguments:
+        num_embeddings: vocabulary size.
+        embedding_dim: size of hidden state.
+        init_method: method to initialize weights.
+    """
+
+    def __init__(self, sequence_length, embedding_dim):
+        super(SeqParallelPositionEmbedding, self).__init__()
+        # Keep the input dimensions.
+        sequence_length = sequence_length
+        embedding_dim = embedding_dim
+
+        sequence_parallel_size = get_sequence_parallel_world_size()
+        assert sequence_length % sequence_parallel_size == 0
+        local_sequence_length = sequence_length // sequence_parallel_size
+        self.offset = local_sequence_length * get_sequence_parallel_rank()
+
+        self.local_embeddings = torch.nn.Embedding(
+            local_sequence_length, embedding_dim)
+
+    def forward(self, position_ids):
+        return self.local_embeddings(position_ids - self.offset)
+
+
 class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
     """See linear_with_grad_accumulation_and_async_allreduce"""
 
@@ -249,6 +280,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
 
         output = torch.matmul(total_input, weight.t())
         if bias is not None:
+            # print(f"LinearWithGradAccumulationAndAsyncCommunication output={output.size()} bias={bias.size()}")
             output = output + bias
         return output
 
