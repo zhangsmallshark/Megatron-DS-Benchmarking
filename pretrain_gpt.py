@@ -71,7 +71,7 @@ if is_first_rank():
     pp_size = os.environ.get('PPSIZE', 1)
     world_size = ptdist.get_world_size()
     WBRUN = wandb.init(
-        project='Megatron-DS',
+        project='dsseq',
         sync_tensorboard=True,
         dir=tensorboard_dir,
         resume='allow',
@@ -79,8 +79,8 @@ if is_first_rank():
         # sync_tensorboard=True,
         # group=f'experiment-{generate_id()}'
         # group='long-seq-ANL0',
-        name=f'{seq_len}kseq-len-no-seq-parallel-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
-        # name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
+        # name=f'{seq_len}kseq-len-no-seq-parallel-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
+        name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
     )
     assert WBRUN is not None and WBRUN is wandb.run
     wandb.run.log_code(HERE.as_posix())  # type:ignore
@@ -192,6 +192,42 @@ def get_batch(data_iterator):
         args.reset_position_ids,
         args.reset_attention_mask,
         args.eod_mask_loss)
+
+    # for sequence parallel
+    world_rank = torch.distributed.get_rank()
+    local_world_size = 1 if not mpu.sequence_parallel_is_initialized() else mpu.get_sequence_parallel_world_size()
+    local_rank = world_rank % local_world_size
+    seq_length = tokens.size(1)
+
+    # print(f"seq_length={seq_length} tokens={tokens.size()} local_world_size={local_world_size}")
+
+    assert seq_length % local_world_size == 0
+    sub_seq_length = seq_length // local_world_size
+    sub_seq_start = local_rank * sub_seq_length
+    sub_seq_end = (local_rank + 1) * sub_seq_length
+
+    # Unpack.
+    # tokens = data_b['text'][:, sub_seq_start:sub_seq_end].long()
+    # types = data_b['types'][:, sub_seq_start:sub_seq_end].long()
+    # sentence_order = data_b['is_random'].long()
+    # loss_mask = data_b['loss_mask'][:, sub_seq_start:sub_seq_end].float()
+    # lm_labels = data_b['labels'][:, sub_seq_start:sub_seq_end].long()
+    # #padding_mask = data_b['padding_mask'].long() 
+    # ##SAGE check
+    # padding_mask = data_b['padding_mask'][:, sub_seq_start:sub_seq_end].long()
+
+
+    tokens = tokens[:, sub_seq_start:sub_seq_end]
+    labels = labels[:, sub_seq_start:sub_seq_end]
+    loss_mask = loss_mask[:, sub_seq_start:sub_seq_end].float()
+    # attention_mask = attention_mask[:, :, sub_seq_start:sub_seq_end, sub_seq_start:sub_seq_end].long()
+    position_ids = position_ids[:, sub_seq_start:sub_seq_end]
+
+    # print(f"seq_length={seq_length} sub_seq_start={sub_seq_start} sub_seq_end={sub_seq_end}")
+    # print(f"tokens={tokens.size()}")
+    # print(f"labels={labels.size()}")
+    # print(f"loss_mask={loss_mask.size()}")
+    # print(f"attention_mask={attention_mask.size()}")
 
     return tokens, labels, loss_mask, attention_mask, position_ids
 
