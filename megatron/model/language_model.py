@@ -33,6 +33,8 @@ def parallel_lm_logits(input_, word_embeddings_weight, parallel_output,
         async_grad_allreduce = False
 
     # Matrix multiply.
+    # print(f"parallel_lm_logits weight={word_embeddings_weight.size()} bias={bias.size()}")
+
     logits_parallel = tensor_parallel.linear_with_grad_accumulation_and_async_allreduce(
         input=input_parallel,
         weight=word_embeddings_weight,
@@ -162,12 +164,19 @@ class Embedding(MegatronModule):
         # Position embedding (serial).
         self.add_position_embedding = args.add_position_embedding
         if self.add_position_embedding:
-            self.position_embeddings = torch.nn.Embedding(
-                max_sequence_length, self.hidden_size)
-            self._position_embeddings_key = 'position_embeddings'
-            # Initialize the position embeddings.
-            if args.perform_initialization:
-                self.init_method(self.position_embeddings.weight)
+            if mpu.get_sequence_parallel_world_size() > 1 and args.zero_stage != 3:
+                self.position_embeddings = tensor_parallel.layers.SeqParallelPositionEmbedding(
+                    max_sequence_length, self.hidden_size)
+                # Initialize the position embeddings.
+                self.init_method(self.position_embeddings.local_embeddings.weight)
+            else:
+                # Position embedding (serial).
+                self.position_embeddings = torch.nn.Embedding(
+                    max_sequence_length, self.hidden_size)
+                self._position_embeddings_key = 'position_embeddings'
+                # Initialize the position embeddings.
+                if args.perform_initialization:
+                    self.init_method(self.position_embeddings.weight)
 
         # Token type embedding.
         # Add this as an optional field that can be added through
@@ -576,7 +585,8 @@ class TransformerLanguageModel(MegatronModule):
         # similarity between two sequences by average pooling
         if not self.add_decoder or output_enc_hidden:
             if self.add_pooler and self.post_process:
-                return (encoder_output, pooled_output, *moe_losses)
+                return encoder_output, pooled_output
+                # return (encoder_output, pooled_output, *moe_losses)
             else:
                 return (encoder_output, *moe_losses)
 
