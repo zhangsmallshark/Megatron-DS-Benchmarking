@@ -10,6 +10,8 @@ done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+
 thetagpuMPI() {
   NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
@@ -25,6 +27,7 @@ thetagpuMPI() {
     -x PYTHONUSERBASE \
     -x https_proxy \
     -x PATH \
+    -x CUDA_DEVICE_MAX_CONNECTIONS \
     -x LD_LIBRARY_PATH"
   MPI_ELASTIC="\
     -n ${NGPUS} \
@@ -87,6 +90,17 @@ condaThetaGPU() {
   echo "USING PYTHON: $(which python3)"
 }
 
+condaThetaGPU_mtanaka() {
+  # module load conda/2023-01-11 ; conda activate base
+  # conda activate \
+  #   /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-01-11-deepspeed
+  VENV_DIR="/lus/grand/projects/datascience/mtanaka/dsseq/venv/dsseq"
+  if [[ -d "${VENV_DIR}" ]] ; then
+    echo "Found venv at: ${VENV_DIR}"
+    # shellcheck source='../venvs/thetaGPU/2023-01-10/bin/activate'
+    source "${VENV_DIR}/bin/activate"
+  fi
+}
 
 condaPolaris220908() {
   echo "Loading: 'module load conda 2022-09-08 ; conda activate base'"
@@ -129,7 +143,7 @@ setupThetaGPU() {
     export MACHINE="ThetaGPU"
     HOSTFILE="${COBALT_NODEFILE}"
     # -- Python / Conda setup -------------------------------------------------
-    condaThetaGPU
+    condaThetaGPU_mtanaka
     thetagpuMPI
   else
     echo "Unexpected hostname: $(hostname)"

@@ -42,6 +42,8 @@ else
   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
 fi
 
+MODEL_TYPE=${MODEL_TYPE:-gpt}
+MODEL_SIZE_KEY=${MODEL_SIZE_KEY:-"GPT1_5B"}
 MODEL_FILE="${DIR}/model.sh"
 if [[ -f "$MODEL_FILE" ]]; then
   echo "source-ing ${MODEL_FILE}"
@@ -68,20 +70,26 @@ PARENT=$(dirname "$DIR")
 export DDP_IMPL="local"   # FSDP | local | torch
 export USE_FLASH_ATTN=1  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
-export SEQ_LEN=$(( 1024 * 26 ))
-export MPSIZE=16
-export PPSIZE=2
-export MICRO_BATCH=1
-export ZERO_STAGE=0  # 0 | 1 | 2 | 3
+# export SEQ_LEN=$(( 1024 * 26 ))
+export SEQ_LEN=${SEQ_LEN:-1024}
+export MPSIZE=${MPSIZE:-1}
+export PPSIZE=1
+export SPSIZE=${SPSIZE:-8}
+export MICRO_BATCH=${MICRO_BATCH:-1}
+export ZERO_STAGE=${ZERO_STAGE:-0}  # 0 | 1 | 2 | 3
 export NHOSTS="$NHOSTS"
 export GRADIENT_ACCUMULATION_STEPS=1
+export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 
 # export GLOBAL_BATCH_MULTIPLIER=1024
 # echo "Setting GLOBAL_BATCH = GLOBAL_BATCH_MULTIPLIER * NHOSTS"
 # echo "Explicitly: $GLOBAL_BATCH_MULTIPLIER * $NHOSTS"#
 
+echo "NGPUS=${NGPUS}"
+
 GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
-GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE ))
+GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
+# GLOBAL_BATCH=1
 export GLOBAL_BATCH="$GLOBAL_BATCH"
 
 # echo "Rescaling GLOBAL_BATCH := (GLOBAL_BATCH * MICRO_BATCH) = ({$GLOBAL_BATCH} * ${MICRO_BATCH})"
@@ -100,9 +108,9 @@ echo "--------------------------------"
 # DATA_PATH="/home/czh5/genome/Megatron-DeepSpeed/dataset/BookCorpusDataset_text_document"
 # VOCAB_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-vocab.json"
 # MERGE_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-merges.txt"
-DATA_PATH="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets/BookCorpusDataset_text_document"
-VOCAB_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets/gpt2-vocab.json"
-MERGE_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets/gpt2-merges.txt"
+DATA_PATH="/grand/projects/datascience/mtanaka/gpt_datasets/BookCorpusDataset_text_document"
+VOCAB_FILE="/grand/projects/datascience/mtanaka/gpt_datasets/gpt2-vocab.json"
+MERGE_FILE="/grand/projects/datascience/mtanaka/gpt_datasets/gpt2-merges.txt"
 
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
@@ -110,7 +118,7 @@ MERGE_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets/gpt2-merges.txt
 # ┗━━━━━━━━━━━━━━━━━━━┛
 RUN_STR="gb${GLOBAL_BATCH}_mb${MICRO_BATCH}"
 RUN_STR="nl${NLAYERS}_hs${HIDDEN}_${RUN_STR}"
-RUN_STR="mp${MPSIZE}_pp${PPSIZE}_${RUN_STR}"
+RUN_STR="mp${MPSIZE}_pp${PPSIZE}_sp${SPSIZE}_${RUN_STR}"
 RUN_STR="z${ZERO_STAGE}_seqlen${SEQ_LEN}_${RUN_STR}"
 RUN_STR="${MODEL_SIZE}_${RUN_STR}"
 
@@ -123,9 +131,11 @@ fi
 if [[ $USE_ACTIVATION_CHECKPOINTING == 1 ]] ;then
   RUN_STR="actCkpt_${RUN_STR}"
 fi
+if [[ $USE_SEQUENCE_PARALLEL == 1 ]] ; then
+  RUN_STR="SP_${RUN_STR}"
+fi
 
-RUN_STR="GPT3_${RUN_STR}"
-
+RUN_STR="${MODEL_TYPE}_${RUN_STR}"
 
 OUTPUT_DIR="${PARENT}/outputs/${RUN_STR}"
 CHECKPOINT_DIR="${PARENT}/checkpoints/$RUN_STR"
@@ -154,10 +164,74 @@ echo "OUTPUT TO: ${OUTPUT_DIR}"
 
 # echo "NVME_PATH: ${NVME_PATH}"
 
+if [[ $MODEL_TYPE == "gpt" ]] ; then
+  DATA_LOAD_ARGS="--data-path $DATA_PATH --vocab-file $VOCAB_FILE --merge-file $MERGE_FILE"
+else
+  DATA_LOAD_ARGS=""
+fi
+
 # ┏━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Config ┃
 # ┗━━━━━━━━━━━━━━━━━━┛
 DS_CONFIG=${PARENT}/ds_config-gpt.json
+
+if [[ $ZERO_STAGE == "3" ]] ; then
+cat <<EOT > "$DS_CONFIG"
+{
+  "train_batch_size" : $GLOBAL_BATCH,
+  "train_micro_batch_size_per_gpu": $MICRO_BATCH,
+  "steps_per_print": 1,
+  "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
+  "zero_optimization": {
+    "stage": 3,
+    "stage3_max_live_parameters": 3e9,
+    "stage3_max_reuse_distance": 3e9,
+    "stage3_param_persistence_threshold": 1e5,
+    "stage3_prefetch_bucket_size": 1e9,
+    "contiguous_gradients": true,
+    "overlap_comm": true,
+    "reduce_bucket_size": 90000000,
+    "sub_group_size": 5e7
+  },
+  "gradient_clipping": 1.0,
+  "fp16": {
+    "enabled": true,
+    "initial_scale_power" : 12,
+    "loss_scale_window": 1000,
+    "hysteresis": 2,
+    "min_loss_scale": 1
+  },
+  "wall_clock_breakdown": true,
+  "zero_allow_untested_optimizer": false,
+  "aio": {
+    "block_size": 1048576,
+    "queue_depth": 16,
+    "single_submit": false,
+    "overlap_events": true,
+    "thread_count": 2
+  },
+  "flops_profiler": {
+    "enabled": true,
+    "profile_step": 1,
+    "module_depth": -1,
+    "top_modules": 3,
+    "detailed": true,
+    "output_file": null
+  },
+  "comms_logger": {
+    "enabled": true,
+    "verbose": false,
+    "prof_all": false,
+    "debug": false
+  },
+  "wandb": {
+    "enabled": false,
+    "group": "megatron-DS0",
+    "project": "megatron-DS"
+  }
+}
+EOT
+else
 cat <<EOT > "$DS_CONFIG"
 {
   "train_batch_size" : $GLOBAL_BATCH,
@@ -171,16 +245,7 @@ cat <<EOT > "$DS_CONFIG"
     "reduce_scatter": true,
     "allgather_bucket_size": 5e8,
     "overlap_comm": true,
-    "contiguous_gradients": true,
-    "offload_param": {
-      "device": "cpu",
-      "nvme_path": "/raid/scratch",
-      "pin_memory": false
-    },
-    "offload_optimizer": {
-      "device": "cpu",
-      "nvme_path": "/raid/scratch/"
-    }
+    "contiguous_gradients": true
   },
   "fp16": {
     "enabled": true,
@@ -207,6 +272,7 @@ cat <<EOT > "$DS_CONFIG"
   }
 }
 EOT
+fi
 
 # ┏━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Arguments ┃
@@ -227,7 +293,6 @@ if [[ "$DDP_IMPL" != "FSDP" ]] ; then
   fi
 fi
 
-
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
@@ -237,6 +302,7 @@ gpt_args="\
   --DDP-impl ${DDP_IMPL} \
   --pipeline-model-parallel-size ${PPSIZE} \
   --tensor-model-parallel-size ${MPSIZE} \
+  --sequence-parallel-size ${SPSIZE} \
   --num-layers ${NLAYERS} \
   --hidden-size ${HIDDEN} \
   --num-attention-heads ${ATEN_HEADS} \
@@ -247,9 +313,7 @@ gpt_args="\
   --train-iters 5 \
   --lr-decay-iters 320000 \
   --num-workers 1 \
-  --data-path $DATA_PATH \
-  --vocab-file $VOCAB_FILE \
-  --merge-file $MERGE_FILE \
+  $DATA_LOAD_ARGS \
   --data-impl mmap \
   --split 949,50,1 \
   --distributed-backend nccl \
@@ -265,7 +329,8 @@ gpt_args="\
   --eval-iters 1 \
   --tensorboard-dir ${TENSORBOARD_DIR} \
   --log-timers-to-tensorboard \
-  --tensorboard-log-interval 1"
+  --tensorboard-log-interval 1" \
+  ${ARG_ENABLE_SEQUENCE_PARALLEL}
 
 # --recompute-activations \
 # --recompute-granularity full \
@@ -274,9 +339,9 @@ gpt_args="\
 if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
   gpt_args="\
     --checkpoint-activations \
-    --distribute-checkpointed-activations \
     --checkpoint-num-layers 1 \
     ${gpt_args}"
+    # --distribute-checkpointed-activations \
 fi
 
 if [[ "$DDP_IMPL" != "FSDP" ]] ; then
@@ -288,6 +353,12 @@ fi
 if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
   gpt_args="\
     --use-flash-attn \
+    ${gpt_args}"
+fi
+
+if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
+  gpt_args="\
+    --sequence-parallel \
     ${gpt_args}"
 fi
 

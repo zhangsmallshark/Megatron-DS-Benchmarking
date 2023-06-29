@@ -10,7 +10,12 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
-MAIN="${PARENT}/pretrain_gpt.py"
+
+
+MASTER_ADDR=$(uname -n)
+MASTER_PORT=20010
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+MPI_WRAPPER="${SCRIPT_DIR}/mpi_wrapper"
 
 # SETUP_FILE="${DIR}/setup.sh"
 # if [[ -f "${SETUP_FILE}" ]]; then
@@ -29,6 +34,9 @@ if [[ -f "${ARGS_FILE}" ]]; then
 else
   echo "ERROR: UNABLE TO SOURCE ${ARGS_FILE}"
 fi
+
+MAIN="${PARENT}/pretrain_${MODEL_TYPE}.py"
+
 
 printJobInfo() {
   echo "Job started at: ${TSTAMP} on $(hostname)"
@@ -68,10 +76,20 @@ singleGPU() {
 # ┃ Use all available GPUs a single nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 fullNode() {
-  NHOSTS=1
+
+echo "fullNode started"
+echo "MPI_COMMAND ${MPI_COMMAND}"
+echo "MPI_DEFAULTS ${MPI_DEFAULTS}"
+echo "NGPUS ${NGPUS}"
+echo "hostfile ${DIR}/hostfile"
+echo "MAIN ${MAIN}"
+echo "gpt_args ${gpt_args}"
+
+  NHOSTS=$(wc -l < "${HOSTFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  # NGPU_PER_HOST=1
   NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
-  hostname > $DIR/hostfile
+  # hostname > $DIR/hostfile
   echo "\
     Running on $NHOSTS hosts \
     with $NGPU_PER_HOST GPUs each \
@@ -79,9 +97,8 @@ fullNode() {
   EXEC="\
     ${MPI_COMMAND} \
     ${MPI_DEFAULTS} \
-    --hostfile ${DIR}/hostfile \
-    -n ${NGPUS}
-    $(which python3) \
+    "${MPI_ELASTIC}"
+    ${MPI_WRAPPER} ${MASTER_ADDR} ${MASTER_PORT} \
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
@@ -89,7 +106,7 @@ fullNode() {
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
-  launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  launchJob "$@" 2>&1 | tee "${OUTPUT_LOG}"
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
