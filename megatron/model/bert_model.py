@@ -5,7 +5,7 @@
 import torch
 
 from megatron import get_args
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, mpu
 from megatron.model.enums import AttnMaskType
 from megatron.model.language_model import parallel_lm_logits
 from megatron.model.language_model import get_language_model
@@ -16,6 +16,7 @@ from megatron.model.utils import init_method_normal
 from megatron.model.utils import scaled_init_method_normal
 from .module import MegatronModule
 
+from deepspeed.runtime.utils import see_memory_usage
 
 def bert_extended_attention_mask(attention_mask):
     # We create a 3D attention mask from a 2D tensor mask.
@@ -36,7 +37,14 @@ def bert_extended_attention_mask(attention_mask):
 def bert_position_ids(token_ids):
     # Create position ids
     seq_length = token_ids.size(1)
-    position_ids = torch.arange(seq_length, dtype=torch.long,
+
+    seq_rank = mpu.get_sequence_parallel_rank()
+    ##SAGE TODO: assert that seq_rank is 0 for non sequence parallel impl
+    if mpu.get_sequence_parallel_world_size() == 1:
+        assert seq_rank == 0, 'sequence rank should be zero for non sequence parallel'
+
+    position_ids = torch.arange(seq_length*seq_rank,seq_length*(seq_rank+1), 
+                                dtype=torch.long,
                                 device=token_ids.device)
     position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
 
@@ -157,11 +165,14 @@ class BertModel(MegatronModule):
             scaled_init_method=scaled_init_method,
             pre_process=self.pre_process,
             post_process=self.post_process)
+        
+        self.num_embeddings_per_partition = self.language_model.embedding.word_embeddings.num_embeddings_per_partition
 
         self.initialize_word_embeddings(init_method_normal)
         if self.post_process:
             self.lm_head = BertLMHead(
-                self.word_embeddings_weight().size(0),
+                # self.word_embeddings_weight().size(0),
+                self.num_embeddings_per_partition,
                 args.hidden_size, init_method, args.layernorm_epsilon, parallel_output)
             self._lm_head_key = 'lm_head'
             self.binary_head = None
@@ -177,7 +188,11 @@ class BertModel(MegatronModule):
     def forward(self, bert_model_input, attention_mask,
                 tokentype_ids=None, lm_labels=None):
 
-        extended_attention_mask = bert_extended_attention_mask(attention_mask)
+
+        #print_rank_0('SAGE BERT MODEL input shape {} mask shape {}'.format(bert_model_input.shape,attention_mask.shape))
+        #extended_attention_mask = bert_extended_attention_mask(attention_mask)
+        ##TODO: fix
+        extended_attention_mask = None
         input_ids = bert_model_input
         position_ids = bert_position_ids(input_ids)
 
