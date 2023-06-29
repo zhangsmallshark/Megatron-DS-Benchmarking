@@ -10,13 +10,14 @@ import torch.nn.functional as F
 from megatron import get_args
 from megatron import print_rank_0
 from megatron import get_timers
-from megatron.core import tensor_parallel
+from megatron.core import mpu, tensor_parallel
 from megatron.core.enums import ModelType
 from megatron.data.dataset_utils import build_train_valid_test_datasets
 from megatron.model import BertModel
 from megatron.training import pretrain
 from megatron.utils import average_losses_across_data_parallel_group
 
+import deepspeed
 
 def model_provider(pre_process=True, post_process=True):
     """Build the model."""
@@ -24,13 +25,26 @@ def model_provider(pre_process=True, post_process=True):
     print_rank_0('building BERT model ...')
 
     args = get_args()
+    vocab_size = 1024
+    #vocab_size = args.vocab_size
+    ##TODO : Hack for synthetic datareader
+    args.padded_vocab_size = vocab_size ##Hack
+    args.custom_token_counting = True
     num_tokentypes = 2 if args.bert_binary_head else 0
-    model = BertModel(
-        num_tokentypes=num_tokentypes,
-        add_binary_head=args.bert_binary_head,
-        parallel_output=True,
-        pre_process=pre_process,
-        post_process=post_process)
+
+    with deepspeed.zero.Init(
+            data_parallel_group=mpu.get_data_parallel_group(),
+            remote_device=None if args.remote_device == 'none' else args.remote_device,
+            config_dict_or_path=args.deepspeed_config,
+            enabled=args.zero_stage == 3,
+            mpu=mpu
+    ):
+        model = BertModel(
+            num_tokentypes=num_tokentypes,
+            add_binary_head=args.bert_binary_head,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process)
 
     return model
 
@@ -49,14 +63,29 @@ def get_batch(data_iterator):
         data = None
     data_b = tensor_parallel.broadcast_data(keys, data, datatype)
 
-    # Unpack.
-    tokens = data_b['text'].long()
-    types = data_b['types'].long()
-    sentence_order = data_b['is_random'].long()
-    loss_mask = data_b['loss_mask'].float()
-    lm_labels = data_b['labels'].long()
-    padding_mask = data_b['padding_mask'].long()
+    # # get tensor parallel local rank
+    #global_rank = torch.distributed.get_rank()
+    local_world_size = 1 if not mpu.sequence_parallel_is_initialized() else mpu.get_sequence_parallel_world_size()
+    #print_rank_0('SAGE Get batch LOCAL WORLD SIZE {} total_data {}'.format(local_world_size,len(data_b)))
 
+    #local_rank = global_rank % local_world_size
+    local_rank = torch.distributed.get_rank() if not mpu.sequence_parallel_is_initialized() \
+               else mpu.get_sequence_parallel_rank()
+
+    seq_length = data_b['text'].size(1)
+    sub_seq_length = seq_length // local_world_size
+    sub_seq_start = local_rank * sub_seq_length
+    sub_seq_end = (local_rank+1) * sub_seq_length
+
+    # Unpack.
+    tokens = data_b['text'][:, sub_seq_start:sub_seq_end].long()
+    types = data_b['types'][:, sub_seq_start:sub_seq_end].long()
+    sentence_order = data_b['is_random'].long()
+    loss_mask = data_b['loss_mask'][:, sub_seq_start:sub_seq_end].float()
+    lm_labels = data_b['labels'][:, sub_seq_start:sub_seq_end].long()
+    #padding_mask = data_b['padding_mask'].long() 
+    padding_mask = data_b['padding_mask'][:, sub_seq_start:sub_seq_end].long()
+    
     return tokens, types, sentence_order, loss_mask, lm_labels, padding_mask
 
 
@@ -64,6 +93,7 @@ def loss_func(loss_mask, sentence_order, output_tensor):
     lm_loss_, sop_logits = output_tensor
 
     lm_loss_ = lm_loss_.float()
+    lm_loss = torch.sum(lm_loss_.view(-1))
     loss_mask = loss_mask.float()
     lm_loss = torch.sum(
         lm_loss_.view(-1) * loss_mask.reshape(-1)) / loss_mask.sum()
@@ -130,6 +160,7 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 
 if __name__ == "__main__":
+    train_valid_test_datasets_provider = None
 
     pretrain(train_valid_test_datasets_provider, model_provider,
              ModelType.encoder_or_decoder,
