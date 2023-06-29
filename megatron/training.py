@@ -45,6 +45,7 @@ from megatron.utils import calc_params_l2_norm
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.utils import report_memory, throughput_calculator, checkpoint_throughput_calculator
 from megatron.model.vision.knn_monitor import compute_feature_bank
+from megatron.data.synthetic_dataset import build_syn_train_valid_test_data_provider
 
 import deepspeed
 from deepspeed.accelerator import get_accelerator
@@ -162,9 +163,14 @@ def pretrain(train_valid_test_dataset_provider,
         test_data_iterator = [data_iterators[2]
                               for data_iterators in all_data_iterators]
     else:
-        train_data_iterator, valid_data_iterator, test_data_iterator \
-            = build_train_valid_test_data_iterators(
-                train_valid_test_dataset_provider)
+        if train_valid_test_dataset_provider is None:
+            print_rank_0('TRAINING PY SAGE using synthetic dataset...ADD FLAG')
+            train_data_iterator, valid_data_iterator, test_data_iterator \
+               = build_syn_train_valid_test_data_provider()
+        else:
+            train_data_iterator, valid_data_iterator, test_data_iterator \
+                = build_train_valid_test_data_iterators(
+                    train_valid_test_dataset_provider)
 
     if args.data_efficiency_curriculum_learning:
         if args.deepspeed_dataloader is not None:
@@ -1163,15 +1169,15 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             writer.add_scalar('seqlen/random_ltd_reserved_length vs tokens', args.random_ltd_reserved_length,
                               args.consumed_train_tokens)
         # if args.log_timers_to_tensorboard:
-        if timers is not None and args.log_timers_to_tensorboard:
-            print_rank_0('Caught timers, writing...')
-            _ = timers.write(timers_to_log, writer, iteration,
-                             normalizer=total_iterations, wbrun=wbrun)
-            timers.log(
-                timers_to_log,
-                normalizer=total_iterations,
-                wbrun=wbrun
-            )
+        # if timers is not None and args.log_timers_to_tensorboard:
+        #     print_rank_0('Caught timers, writing...')
+        #     _ = timers.write(timers_to_log, writer, iteration,
+        #                      normalizer=total_iterations, wbrun=wbrun)
+        #     timers.log(
+        #         timers_to_log,
+        #         normalizer=total_iterations,
+        #         wbrun=wbrun
+        #     )
             # if wbrun is not None and wbrun is wandb.run:
             #     wbrun.log(data)
             # timers.track(names, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
@@ -1218,6 +1224,14 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
                 torch.distributed.all_reduce(opt_stats_2, op=torch.distributed.ReduceOp.MAX,
                     group=mpu.get_pipeline_model_parallel_group())
+            
+            if args.sequence_parallel_size > 1:
+                print_rank_0('SAGE Using SEQUENCE PARALLEL')
+                opt_stats = torch.cuda.FloatTensor(opt_stats)
+                torch.distributed.all_reduce(opt_stats, group=mpu.get_sequence_parallel_group())
+                opt_stats_2 = torch.cuda.FloatTensor(opt_stats_2)
+                torch.distributed.all_reduce(opt_stats_2, op=torch.distributed.ReduceOp.MAX,
+                    group=mpu.get_sequence_parallel_group())
 
             # print('step {} rank {} after sync opt_stats {}, {}'.format(iteration, torch.distributed.get_rank(), opt_stats_2, opt_stats))
             if writer and is_rank_0():
