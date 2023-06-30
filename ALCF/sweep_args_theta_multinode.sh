@@ -5,42 +5,28 @@ conda activate base
 cd /grand/projects/datascience/mtanaka/dsseq/Megatron-DS/ALCF
 source /grand/projects/datascience/mtanaka/dsseq/venv/dsseq/bin/activate
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+echo "My current script is: ${SCRIPT_DIR[0]}"
 
 NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
 NGPU_PER_HOST=8
-export SPSIZE=$((${NHOSTS}*${NGPU_PER_HOST}))
+PARALLEL_SIZE=$((${NHOSTS}*${NGPU_PER_HOST}))
 
-export MODEL_TYPE=bert
-export ZERO_STAGE=0
-export USE_SEQUENCE_PARALLEL=1
+export MODEL_TYPE=${MODEL_TYPE:-"bert"} # set bert or gpt3
+export SP_TYPE=${SP_TYPE:-"ds"} # set ds or megatron
 
 SEQLEN_VALS=(
-  2048
-  4096
-  8192
-  16384
-  32768
-  65536
-  131072
+  # 2048
+  # 4096
+  # 8192
+  # 16384
+  # 32768
+  # 65536
+  # 131072
   262144
   524288
-  # 1048576
-  # 2097152
-)
- 
-SPSIZE_VALS=(
-1
-# 2
-# 4
-# 8
-)
-
-MPSIZE_VALS=(
-# 1
-# 2
-# 4
-# 8
-16
+  1048576
+  2097152
 )
 
 MODEL_SIZE_VALS=(
@@ -48,21 +34,32 @@ MODEL_SIZE_VALS=(
   # "BERT1.2B"
   # "GPT1_5B"
   # "GPT2_7B"
-  # "GPT6_7B"
+  "GPT6_7B"
   # "GPT13B"
-  "GPT25B"
+  # "GPT25B"
 )
 
 for MODEL_SIZE_KEY in "${MODEL_SIZE_VALS[@]}"; do
   export MODEL_SIZE_KEY
   for SEQ_LEN in "${SEQLEN_VALS[@]}"; do
-    for SPSIZE in "${SPSIZE_VALS[@]}"; do
-      for MPSIZE in "${MPSIZE_VALS[@]}"; do
-          export SEQ_LEN
-          export SPSIZE
-          export MPSIZE
-          bash ./benchmark_train.sh
-      done
-    done
+    export SEQ_LEN
+
+    if [[ ${SP_TYPE} == "ds" ]]; then
+      echo "DS sequence parallel"
+      export SPSIZE=${PARALLEL_SIZE}
+      export MPSIZE=1
+      export ZERO_STAGE=3
+      export USE_SEQUENCE_PARALLEL=0
+      bash ./benchmark_train.sh
+    fi
+
+    if [[ ${SP_TYPE} == "megatron" ]]; then
+      echo "Megatron's sequence parallel"
+      export SPSIZE=1
+      export MPSIZE=${PARALLEL_SIZE}
+      export ZERO_STAGE=0
+      export USE_SEQUENCE_PARALLEL=1
+      bash ./benchmark_train.sh
+    fi
   done
 done
