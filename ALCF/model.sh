@@ -143,6 +143,8 @@ A_ATEN_HEADS[$MODEL_25B_KEY]=128
 # HIDDEN=6144
 # ATEN_HEADS=64
 
+# head size must be divisible by 8 (requirements of flash attention)
+# head num must be divisible by sequence/tensor parallel size
 MODEL_30B_KEY="GPT30B"
 A_NLAYERS[$MODEL_30B_KEY]=64
 A_HIDDEN[$MODEL_30B_KEY]=6144

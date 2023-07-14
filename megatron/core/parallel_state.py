@@ -44,7 +44,7 @@ _POSITION_EMBEDDING_GLOBAL_RANKS = None
 # rank when broadcasting from the first or last pipeline stage.
 _PIPELINE_GLOBAL_RANKS = None
 
-##Sequence parallel group
+# Sequence parallel group
 _SEQUENCE_PARALLEL_GROUP = None
 _SEQUENCE_PARALLEL_WORLD_SIZE = None
 _SEQUENCE_PARALLEL_RANK = None
@@ -140,13 +140,14 @@ def initialize_model_parallel(
         assert tensor_model_parallel_size == 1 and pipeline_model_parallel_size == 1, \
         'DeepSpeed\'s sequence parallel does not work with tensor parallel or pipeline parallel'
 
-
     data_parallel_size: int = world_size // (tensor_model_parallel_size * sequence_parallel_size *
                                              pipeline_model_parallel_size)
 
     num_tensor_model_parallel_groups: int  = world_size // tensor_model_parallel_size
     num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     num_data_parallel_groups: int = world_size // data_parallel_size
+    sequence_parallel_size = tensor_model_parallel_size
+    # sequence_parallel_size = world_size
     num_sequence_parallel_groups: int = world_size // sequence_parallel_size
 
     if virtual_pipeline_model_parallel_size is not None:
@@ -182,7 +183,8 @@ def initialize_model_parallel(
             ranks = range(start_rank + j, end_rank, tp_or_sp_size)
             all_data_parallel_group_ranks.append(list(ranks))
             group = torch.distributed.new_group(ranks)
-            group_gloo = torch.distributed.new_group(ranks, backend="gloo")
+            # group_gloo = torch.distributed.new_group(ranks, backend="gloo")
+            group_gloo = torch.distributed.new_group(ranks, backend="nccl")
             if rank in ranks:
                 _DATA_PARALLEL_GROUP = group
                 _DATA_PARALLEL_GROUP_GLOO = group_gloo

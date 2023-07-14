@@ -71,7 +71,7 @@ if is_first_rank():
     pp_size = os.environ.get('PPSIZE', 1)
     world_size = ptdist.get_world_size()
     WBRUN = wandb.init(
-        project='dsseq',
+        project='Megatron-DS1',
         sync_tensorboard=True,
         dir=tensorboard_dir,
         resume='allow',
@@ -199,8 +199,6 @@ def get_batch(data_iterator):
     local_rank = world_rank % local_world_size
     seq_length = tokens.size(1)
 
-    # print(f"seq_length={seq_length} tokens={tokens.size()} local_world_size={local_world_size}")
-
     assert seq_length % local_world_size == 0
     sub_seq_length = seq_length // local_world_size
     sub_seq_start = local_rank * sub_seq_length
@@ -216,18 +214,14 @@ def get_batch(data_iterator):
     # ##SAGE check
     # padding_mask = data_b['padding_mask'][:, sub_seq_start:sub_seq_end].long()
 
+    # tokens = tokens[:, sub_seq_start:sub_seq_end]
+    # labels = labels[:, sub_seq_start:sub_seq_end]
+    # loss_mask = loss_mask[:, sub_seq_start:sub_seq_end].float()
+    # # attention_mask = attention_mask[:, :, sub_seq_start:sub_seq_end, sub_seq_start:sub_seq_end].long()
+    # position_ids = position_ids[:, sub_seq_start:sub_seq_end]
 
     tokens = tokens[:, sub_seq_start:sub_seq_end]
-    labels = labels[:, sub_seq_start:sub_seq_end]
-    loss_mask = loss_mask[:, sub_seq_start:sub_seq_end].float()
-    # attention_mask = attention_mask[:, :, sub_seq_start:sub_seq_end, sub_seq_start:sub_seq_end].long()
     position_ids = position_ids[:, sub_seq_start:sub_seq_end]
-
-    # print(f"seq_length={seq_length} sub_seq_start={sub_seq_start} sub_seq_end={sub_seq_end}")
-    # print(f"tokens={tokens.size()}")
-    # print(f"labels={labels.size()}")
-    # print(f"loss_mask={loss_mask.size()}")
-    # print(f"attention_mask={attention_mask.size()}")
 
     return tokens, labels, loss_mask, attention_mask, position_ids
 
@@ -416,7 +410,6 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         valid_data_prefix=args.valid_data_path,
         test_data_prefix=args.test_data_path)
     print_rank_0("> finished creating GPT datasets ...")
-
     return train_ds, valid_ds, test_ds
 
 
@@ -476,4 +469,3 @@ def main():
 if __name__ == "__main__":
     wandb.require(experiment='service')
     main()
-

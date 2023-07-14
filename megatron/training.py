@@ -1398,6 +1398,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         args.random_ltd_layer_num = model[0].random_ltd_scheduler.get_random_ltd_layer_num()
 
     report_memory_flag = True
+
     while iteration < args.train_iters:
         update_num_microbatches(args.consumed_train_samples)
         if args.deepspeed:
@@ -1413,14 +1414,15 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         args.curr_iteration = iteration
         loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
             train_step(forward_step_func,
-                       train_data_iterator,
-                       model,
-                       optimizer,
-                       opt_param_scheduler)
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler)
         iteration += 1
+
         new_samples = mpu.get_data_parallel_world_size() * \
-                                       args.micro_batch_size * \
-                                       get_num_microbatches()
+                                    args.micro_batch_size * \
+                                    get_num_microbatches()
         args.consumed_train_samples += new_samples
         # This actual_seq_length is used for actual consumed tokens calculation, flops calculation, and logging.
         args.actual_seq_length = args.seq_length
@@ -1453,25 +1455,25 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         if args.log_params_norm:
             params_norm = calc_params_l2_norm(model)
         report_memory_flag = training_log(loss_dict, total_loss_dict,
-                                          optimizer.param_groups[0]['lr'],
-                                          iteration, loss_scale,
-                                          report_memory_flag, skipped_iter,
-                                          grad_norm, params_norm, num_zeros_in_grad, wbrun=wbrun)
+                                        optimizer.param_groups[0]['lr'],
+                                        iteration, loss_scale,
+                                        report_memory_flag, skipped_iter,
+                                        grad_norm, params_norm, num_zeros_in_grad, wbrun=wbrun)
 
         # Autoresume
         if args.adlr_autoresume and \
-           (iteration % args.adlr_autoresume_interval == 0):
+        (iteration % args.adlr_autoresume_interval == 0):
             check_adlr_autoresume_termination(iteration, model, optimizer,
-                                              opt_param_scheduler)
+                                            opt_param_scheduler)
 
         # Evaluation
         if args.eval_interval and iteration % args.eval_interval == 0 and \
-           args.do_valid:
+        args.do_valid:
             prefix = 'iteration {}'.format(iteration)
             evaluate_and_print_results(prefix, forward_step_func,
-                                       valid_data_iterator, model,
-                                       iteration, process_non_loss_data_func,
-                                       False)
+                                    valid_data_iterator, model,
+                                    iteration, process_non_loss_data_func,
+                                    False)
 
         # Checkpointing
         saved_checkpoint = False
@@ -1479,14 +1481,14 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             signal_handler = get_signal_handler()
             if any(signal_handler.signals_received()):
                 save_checkpoint_and_time(iteration, model, optimizer,
-                                         opt_param_scheduler)
+                                        opt_param_scheduler)
                 print_datetime('exiting program after receiving SIGTERM.')
                 sys.exit()
 
         if args.save and args.save_interval and \
-           iteration % args.save_interval == 0:
+        iteration % args.save_interval == 0:
             save_checkpoint_and_time(iteration, model, optimizer,
-                                     opt_param_scheduler)
+                                    opt_param_scheduler)
             saved_checkpoint = True
 
         # Exiting based on duration
@@ -1500,7 +1502,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             if done:
                 if not saved_checkpoint:
                     save_checkpoint_and_time(iteration, model, optimizer,
-                                             opt_param_scheduler)
+                                            opt_param_scheduler)
                 print_datetime('exiting program after {} minutes'.format(train_time))
                 sys.exit()
 
@@ -1508,7 +1510,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         if args.exit_interval and iteration % args.exit_interval == 0:
             if args.save and not saved_checkpoint:
                 save_checkpoint_and_time(iteration, model, optimizer,
-                                         opt_param_scheduler)
+                                        opt_param_scheduler)
             torch.distributed.barrier()
             print_datetime('exiting program at iteration {}'.format(iteration))
             sys.exit()

@@ -19,6 +19,15 @@ from megatron.utils import average_losses_across_data_parallel_group
 
 import deepspeed
 
+from pytorch_memlab import MemReporter
+
+def is_rank_0():
+    # if torch.distributed.get_rank() == 0:
+    if torch.cuda.current_device() == 0:
+        return True
+    else:
+        return False
+
 def model_provider(pre_process=True, post_process=True):
     """Build the model."""
 
@@ -46,6 +55,19 @@ def model_provider(pre_process=True, post_process=True):
             pre_process=pre_process,
             post_process=post_process)
 
+    if is_rank_0():
+        print(model)
+
+    # print(f"number of params: {sum([p.numel() for p in model.parameters()])}")
+    # p_list = []
+    # for name, param in model.named_parameters():
+    #     if param.requires_grad:
+    #         p_list.append([name, param.numel()])
+    # p_list.sort(key=lambda x : x[1], reverse=True)
+    # if is_rank_0():
+    #     print(p_list)
+    #     print('\n')
+
     return model
 
 
@@ -63,12 +85,7 @@ def get_batch(data_iterator):
         data = None
     data_b = tensor_parallel.broadcast_data(keys, data, datatype)
 
-    # # get tensor parallel local rank
-    #global_rank = torch.distributed.get_rank()
     local_world_size = 1 if not mpu.sequence_parallel_is_initialized() else mpu.get_sequence_parallel_world_size()
-    #print_rank_0('SAGE Get batch LOCAL WORLD SIZE {} total_data {}'.format(local_world_size,len(data_b)))
-
-    #local_rank = global_rank % local_world_size
     local_rank = torch.distributed.get_rank() if not mpu.sequence_parallel_is_initialized() \
                else mpu.get_sequence_parallel_rank()
 
@@ -81,11 +98,15 @@ def get_batch(data_iterator):
     tokens = data_b['text'][:, sub_seq_start:sub_seq_end].long()
     types = data_b['types'][:, sub_seq_start:sub_seq_end].long()
     sentence_order = data_b['is_random'].long()
-    loss_mask = data_b['loss_mask'][:, sub_seq_start:sub_seq_end].float()
-    lm_labels = data_b['labels'][:, sub_seq_start:sub_seq_end].long()
-    #padding_mask = data_b['padding_mask'].long() 
-    padding_mask = data_b['padding_mask'][:, sub_seq_start:sub_seq_end].long()
-    
+
+    # loss_mask = data_b['loss_mask'][:, sub_seq_start:sub_seq_end].float()
+    # lm_labels = data_b['labels'][:, sub_seq_start:sub_seq_end].long()
+    # padding_mask = data_b['padding_mask'][:, sub_seq_start:sub_seq_end].long()
+
+    loss_mask = data_b['loss_mask'].float()
+    lm_labels = data_b['labels'].long()
+    padding_mask = data_b['padding_mask'].long()
+
     return tokens, types, sentence_order, loss_mask, lm_labels, padding_mask
 
 
@@ -132,7 +153,11 @@ def forward_step(data_iterator, model):
 
     # Forward pass through the model.
     output_tensor = model(tokens, padding_mask, tokentype_ids=types,
-                          lm_labels=lm_labels)
+                        lm_labels=lm_labels)
+
+    # mem_reporter = MemReporter(model)
+    # if is_rank_0() and args.curr_iteration == 0:
+    #     mem_reporter.report(device=torch.device(f'cuda:{torch.cuda.current_device()}'), loc='After iter')
 
     return output_tensor, partial(loss_func, loss_mask, sentence_order)
 

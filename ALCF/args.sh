@@ -85,7 +85,19 @@ export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 # echo "Setting GLOBAL_BATCH = GLOBAL_BATCH_MULTIPLIER * NHOSTS"
 # echo "Explicitly: $GLOBAL_BATCH_MULTIPLIER * $NHOSTS"#
 
-echo "NGPUS=${NGPUS}"
+# echo "NGPUS=${NGPUS}"
+
+if [ ${SEQ_LEN} -eq 8192 ]; then
+    MICRO_BATCH=4
+fi
+
+if [ ${SEQ_LEN} -eq 16384 ]; then
+    MICRO_BATCH=2
+fi
+
+if [ ${SEQ_LEN} -eq 32768 ]; then
+    MICRO_BATCH=1
+fi
 
 GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
 GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
@@ -105,13 +117,9 @@ echo "--------------------------------"
 # ┃ Data paths ┃
 # ┗━━━━━━━━━━━━┛
 # DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
-# DATA_PATH="/home/czh5/genome/Megatron-DeepSpeed/dataset/BookCorpusDataset_text_document"
-# VOCAB_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-vocab.json"
-# MERGE_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-merges.txt"
-DATA_PATH="/grand/projects/datascience/mtanaka/gpt_datasets/BookCorpusDataset_text_document"
-VOCAB_FILE="/grand/projects/datascience/mtanaka/gpt_datasets/gpt2-vocab.json"
-MERGE_FILE="/grand/projects/datascience/mtanaka/gpt_datasets/gpt2-merges.txt"
-
+DATA_PATH="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/BookCorpusDataset_text_document"
+VOCAB_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/gpt2-vocab.json"
+MERGE_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/gpt2-merges.txt"
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ FILE I/O SETTINGS ┃

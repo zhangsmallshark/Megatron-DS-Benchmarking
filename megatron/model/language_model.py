@@ -32,9 +32,6 @@ def parallel_lm_logits(input_, word_embeddings_weight, parallel_output,
         input_parallel = tensor_parallel.copy_to_tensor_model_parallel_region(input_)
         async_grad_allreduce = False
 
-    # Matrix multiply.
-    # print(f"parallel_lm_logits weight={word_embeddings_weight.size()} bias={bias.size()}")
-
     logits_parallel = tensor_parallel.linear_with_grad_accumulation_and_async_allreduce(
         input=input_parallel,
         weight=word_embeddings_weight,
@@ -248,12 +245,15 @@ class Embedding(MegatronModule):
             embeddings = embeddings.float()
 
         # Dropout.
-        if self.sequence_parallel:
-            embeddings = tensor_parallel.scatter_to_sequence_parallel_region(embeddings)
-            with tensor_parallel.get_cuda_rng_tracker().fork():
-                embeddings = self.embedding_dropout(embeddings)
-        else:
+        if mpu.get_sequence_parallel_world_size() > 1:
             embeddings = self.embedding_dropout(embeddings)
+        else:
+            if self.sequence_parallel:
+                embeddings = tensor_parallel.scatter_to_sequence_parallel_region(embeddings)
+                with tensor_parallel.get_cuda_rng_tracker().fork():
+                    embeddings = self.embedding_dropout(embeddings)
+            else:
+                embeddings = self.embedding_dropout(embeddings)
 
         return embeddings
 

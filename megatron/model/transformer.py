@@ -529,6 +529,9 @@ class ParallelAttention(MegatronModule):
                 **_args_to_kwargs())
 
         self.enable_ds_sequence_parallel = mpu.get_sequence_parallel_world_size() > 1
+        if mpu.get_tensor_model_parallel_world_size() > 1:
+            self.enable_ds_sequence_parallel = False
+
         if self.enable_ds_sequence_parallel:
             assert args.num_attention_heads % mpu.get_sequence_parallel_world_size() == 0
             self.local_attn = FlashSelfAttentionTriton(
@@ -881,9 +884,9 @@ class ParallelTransformerLayer(MegatronModule):
                 encoder_output=None, enc_dec_attn_mask=None,
                 inference_params=None, rotary_pos_emb=None):
         # hidden_states: [s, b, h]
-
         # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
+        
         # Self attention.
         attention_output, attention_bias = \
             self.self_attention(

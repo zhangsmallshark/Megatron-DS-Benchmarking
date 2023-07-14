@@ -97,7 +97,8 @@ def get_megatron_optimizer(model,
         lr=args.lr,
         weight_decay=args.weight_decay,
         betas=(args.adam_beta1, args.adam_beta2),
-        eps=args.adam_eps
+        eps=args.adam_eps,
+        foreach=False
     )
 
     if args.deepspeed:

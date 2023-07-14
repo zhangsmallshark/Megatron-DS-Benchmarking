@@ -73,8 +73,8 @@ condaThetaGPU220701() {
 
 condaThetaGPU230111() {
   module load conda/2023-01-11 ; conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-01-11-deepspeed
+#   conda activate \
+#     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-01-11-deepspeed
   VENV_DIR="${PARENT}/venvs/thetaGPU/2023-01-11-deepspeed"
   if [[ -d "${VENV_DIR}" ]] ; then
     echo "Found venv at: ${VENV_DIR}"

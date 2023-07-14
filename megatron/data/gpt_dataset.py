@@ -307,6 +307,8 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
     sample_idx_filename = _filename + '_sample_idx.npy'
     shuffle_idx_filename = _filename + '_shuffle_idx.npy'
 
+    done_mark_filename = _filename + '.done'
+
     # Build the indexed mapping if not exist.
     if torch.distributed.get_rank() == 0:
         if (not os.path.isfile(doc_idx_filename)) or \
@@ -387,22 +389,31 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
             print_rank_0(' > elasped time to build and save shuffle-idx mapping'
                          ' (seconds): {:4f}'.format(time.time() - start_time))
 
+            time.sleep(10)
+
+        with open(done_mark_filename, 'w') as f:
+            f.write("done")
+
     # This should be a barrier but nccl barrier assumes
     # device_index=rank which is not the case for model
     # parallel case
-    counts = torch.cuda.LongTensor([1])
-    torch.distributed.all_reduce(counts, group=mpu.get_data_parallel_group())
-    torch.distributed.all_reduce(counts, group=mpu.get_pipeline_model_parallel_group())
+    # counts = torch.cuda.LongTensor([1])
+    # torch.distributed.all_reduce(counts, group=mpu.get_data_parallel_group())
+    # torch.distributed.all_reduce(counts, group=mpu.get_pipeline_model_parallel_group())
 
-    if mpu.get_sequence_parallel_world_size() > 1:
-        torch.distributed.barrier(group=mpu.get_sequence_parallel_group())
-        assert counts[0].item() == (
-            torch.distributed.get_world_size() //
-            torch.distributed.get_world_size(group=mpu.get_sequence_parallel_group()))
-    else:
-        assert counts[0].item() == (
-            torch.distributed.get_world_size() //
-            torch.distributed.get_world_size(group=mpu.get_tensor_model_parallel_group()))
+    # if mpu.get_tensor_model_parallel_world_size() == 1 and mpu.get_sequence_parallel_world_size() > 1:
+    #     torch.distributed.barrier(group=mpu.get_sequence_parallel_group())
+    #     assert counts[0].item() == (
+    #         torch.distributed.get_world_size() //
+    #         torch.distributed.get_world_size(group=mpu.get_sequence_parallel_group()))
+    # else:
+    #     assert counts[0].item() == (
+    #         torch.distributed.get_world_size() //
+    #         torch.distributed.get_world_size(group=mpu.get_tensor_model_parallel_group()))
+
+    # Global barrier
+    while not os.path.exists(done_mark_filename):
+        time.sleep(10)
 
     # Load mappings.
     start_time = time.time()
