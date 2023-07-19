@@ -132,8 +132,8 @@ A_ATEN_HEADS[$MODEL_13B_KEY]=64
 
 MODEL_25B_KEY="GPT25B"
 A_NLAYERS[$MODEL_25B_KEY]=64
-A_HIDDEN[$MODEL_25B_KEY]=5760
-A_ATEN_HEADS[$MODEL_25B_KEY]=128
+A_HIDDEN[$MODEL_25B_KEY]=6144
+A_ATEN_HEADS[$MODEL_25B_KEY]=64
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 30B Params ┃
@@ -158,10 +158,15 @@ A_ATEN_HEADS[$MODEL_30B_KEY]=64
 # HIDDEN=5760                                                                                                                                                                                                      
 # ATEN_HEADS=80
 
+# MODEL_33B_KEY="GPT33B"
+# A_NLAYERS[$MODEL_33B_KEY]=80
+# A_HIDDEN[$MODEL_33B_KEY]=5760
+# A_ATEN_HEADS[$MODEL_33B_KEY]=80
+
 MODEL_33B_KEY="GPT33B"
 A_NLAYERS[$MODEL_33B_KEY]=80
-A_HIDDEN[$MODEL_33B_KEY]=5760
-A_ATEN_HEADS[$MODEL_33B_KEY]=80
+A_HIDDEN[$MODEL_33B_KEY]=6144
+A_ATEN_HEADS[$MODEL_33B_KEY]=64
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 145B Params ┃

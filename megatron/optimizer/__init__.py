@@ -8,6 +8,7 @@ from megatron import get_args
 from .distrib_optimizer import DistributedOptimizer
 from .grad_scaler import ConstantGradScaler, DynamicGradScaler
 from .optimizer import Float16OptimizerWithFloat16Params, FP32Optimizer
+import deepspeed
 
 
 def get_param_groups(modules,
@@ -92,14 +93,22 @@ def get_megatron_optimizer(model,
     #     raise Exception('{} optimizer is not supported.'.format(
     #         args.optimizer))
 
-    optimizer = torch.optim.AdamW(
+    optimizer = deepspeed.ops.adam.DeepSpeedCPUAdam(
         param_groups,
         lr=args.lr,
         weight_decay=args.weight_decay,
         betas=(args.adam_beta1, args.adam_beta2),
-        eps=args.adam_eps,
-        foreach=False
+        eps=args.adam_eps
     )
+
+    # optimizer = torch.optim.AdamW(
+    #     param_groups,
+    #     lr=args.lr,
+    #     weight_decay=args.weight_decay,
+    #     betas=(args.adam_beta1, args.adam_beta2),
+    #     eps=args.adam_eps,
+    #     foreach=False
+    # )
 
     if args.deepspeed:
         return optimizer

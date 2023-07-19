@@ -147,7 +147,6 @@ def initialize_model_parallel(
     num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     num_data_parallel_groups: int = world_size // data_parallel_size
     sequence_parallel_size = tensor_model_parallel_size
-    # sequence_parallel_size = world_size
     num_sequence_parallel_groups: int = world_size // sequence_parallel_size
 
     if virtual_pipeline_model_parallel_size is not None:

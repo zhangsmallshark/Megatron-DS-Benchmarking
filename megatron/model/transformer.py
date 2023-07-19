@@ -21,8 +21,9 @@ import deepspeed
 from deepspeed.moe.layer import MoE
 from deepspeed.accelerator import get_accelerator
 
-from deepspeed.sequence.layer import DistributedAttention
+# from deepspeed.sequence.layer import DistributedAttention
 
+DistributedAttention = None
 
 try:
     from einops import rearrange

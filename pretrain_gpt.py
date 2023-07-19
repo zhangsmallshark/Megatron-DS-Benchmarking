@@ -161,6 +161,12 @@ def model_provider(pre_process=True, post_process=True):
         )
 
     see_memory_usage(f"After Building Model", force=True)
+
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print_rank_0('\n ------------------------ ')
+    print_rank_0(f'num of parameters {num_params}')
+    print_rank_0('------------------------\n ')
+
     return model
 
 
