@@ -1,0 +1,25 @@
+Jobid: 10142843
+qsub -n 4 -t 01:10:00 -q full-node -A sbi-fair --attrs filesystems=grand,home,eagle ./sweep_args_theta_multinode.sh
+Wed Jul 12 03:41:38 2023 +0000 (UTC) submitted with cwd set to: /home/czh5/seq/Megatron-DS-Benchmarking/ALCF
+jobid 10142843 submitted from terminal /dev/pts/9
+Wed Jul 12 05:28:35 2023 +0000 (UTC) 
+Wed Jul 12 05:28:35 2023 +0000 (UTC) Command: '/usr/bin/ssh' 'thetagpu22' '/usr/bin/cobalt-launcher.py' '--nf' '/var/tmp/cobalt.10142843' '--jobid' '10142843' '--cwd' '/home/czh5/seq/Megatron-DS-Benchmarking/ALCF' '--env' 'COBALT_JOBID=10142843' '/home/czh5/seq/Megatron-DS-Benchmarking/ALCF/./sweep_args_theta_multinode.sh'
+Wed Jul 12 05:28:35 2023 +0000 (UTC) 
+Wed Jul 12 05:28:35 2023 +0000 (UTC) Environment:
+Wed Jul 12 05:28:35 2023 +0000 (UTC) SHELL=/bin/bash
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_NODEFILE=/tmp/tmpFOnRn3
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_PARTNAME=thetagpu22
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_JOBID=10142843
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_STARTTIME=1689139704
+Wed Jul 12 05:28:35 2023 +0000 (UTC) LOGNAME=czh5
+Wed Jul 12 05:28:35 2023 +0000 (UTC) USER=czh5
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_ENDTIME=1689143904
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_PARTSIZE=4
+Wed Jul 12 05:28:35 2023 +0000 (UTC) HOME=/home/czh5
+Wed Jul 12 05:28:35 2023 +0000 (UTC) COBALT_JOBSIZE=4
+Wed Jul 12 05:28:35 2023 +0000 (UTC) 
+Wed Jul 12 05:28:35 2023 +0000 (UTC) Info: stdin received from /dev/null
+Wed Jul 12 05:28:35 2023 +0000 (UTC) Info: stdout sent to /home/czh5/seq/Megatron-DS-Benchmarking/ALCF/10142843.output
+Wed Jul 12 05:28:35 2023 +0000 (UTC) Info: stderr sent to /home/czh5/seq/Megatron-DS-Benchmarking/ALCF/10142843.error
+Wed Jul 12 05:28:35 2023 +0000 (UTC) 
+Wed Jul 12 05:40:50 2023 +0000 (UTC) Info: task completed normally with an exit code of 0; initiating job cleanup and removal

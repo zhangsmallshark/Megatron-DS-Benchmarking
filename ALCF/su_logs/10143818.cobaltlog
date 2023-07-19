@@ -1,0 +1,25 @@
+Jobid: 10143818
+qsub -n 4 -t 00:48:00 -q full-node -A sbi-fair --attrs filesystems=grand,home,eagle ./sweep_args_theta_multinode.sh
+Mon Jul 17 13:32:28 2023 +0000 (UTC) submitted with cwd set to: /home/czh5/seq/Megatron-DS-Benchmarking/ALCF
+jobid 10143818 submitted from terminal /dev/pts/9
+Mon Jul 17 13:32:48 2023 +0000 (UTC) 
+Mon Jul 17 13:32:48 2023 +0000 (UTC) Command: '/usr/bin/ssh' 'thetagpu04' '/usr/bin/cobalt-launcher.py' '--nf' '/var/tmp/cobalt.10143818' '--jobid' '10143818' '--cwd' '/home/czh5/seq/Megatron-DS-Benchmarking/ALCF' '--env' 'COBALT_JOBID=10143818' '/home/czh5/seq/Megatron-DS-Benchmarking/ALCF/./sweep_args_theta_multinode.sh'
+Mon Jul 17 13:32:48 2023 +0000 (UTC) 
+Mon Jul 17 13:32:48 2023 +0000 (UTC) Environment:
+Mon Jul 17 13:32:48 2023 +0000 (UTC) SHELL=/bin/bash
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_NODEFILE=/tmp/tmpAvgXut
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_PARTNAME=thetagpu04
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_JOBID=10143818
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_STARTTIME=1689600757
+Mon Jul 17 13:32:48 2023 +0000 (UTC) LOGNAME=czh5
+Mon Jul 17 13:32:48 2023 +0000 (UTC) USER=czh5
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_ENDTIME=1689603637
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_PARTSIZE=4
+Mon Jul 17 13:32:48 2023 +0000 (UTC) HOME=/home/czh5
+Mon Jul 17 13:32:48 2023 +0000 (UTC) COBALT_JOBSIZE=4
+Mon Jul 17 13:32:48 2023 +0000 (UTC) 
+Mon Jul 17 13:32:48 2023 +0000 (UTC) Info: stdin received from /dev/null
+Mon Jul 17 13:32:48 2023 +0000 (UTC) Info: stdout sent to /home/czh5/seq/Megatron-DS-Benchmarking/ALCF/10143818.output
+Mon Jul 17 13:32:48 2023 +0000 (UTC) Info: stderr sent to /home/czh5/seq/Megatron-DS-Benchmarking/ALCF/10143818.error
+Mon Jul 17 13:32:48 2023 +0000 (UTC) 
+Mon Jul 17 14:20:52 2023 +0000 (UTC) Info: maximum execution time exceeded; initiating job termination

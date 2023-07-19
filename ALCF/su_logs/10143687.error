@@ -1,0 +1,6 @@
+
+The following have been reloaded with a version change:
+  1) openmpi/openmpi-4.0.5 => openmpi/openmpi-4.1.4_ucx-1.14.0_gcc-9.4.0_cuda-11.8
+
+/opt/lmod/stable/lmod/lmod/init/bash: line 82: export: __add_sys_prefix_to_path: not a function
+Killed by signal 15.
