@@ -21,12 +21,12 @@ export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
 K_VALS=(
     # 2
     # 4
-    # 8
+    8
     # 16
     # 32
     # 64
     # 128
-    192
+    # 192
     # 256
     # 272
     # 320
@@ -102,7 +102,7 @@ for MODEL_SIZE_KEY in "${MODEL_SIZE_VALS[@]}"; do
 
       export SPSIZE=1
       export MPSIZE=${PARALLEL_SIZE}
-      export ZERO_STAGE=2
+      export ZERO_STAGE=0
       export USE_SEQUENCE_PARALLEL=1
       bash ./benchmark_train.sh
     fi
