@@ -1,9 +1,21 @@
 #!/bin/bash --login
 #
-cd ${PBS_O_WORKDIR}
+
+# if [[ $(hostname) == theta* ]]; then
+#   cd "${COBALT_WORKDIR}"
+if [[ $(hostname) == x* ]]; then
+  cd "${PBS_O_WORKDIR}" || exit
+fi
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+export TSTAMP="$TSTAMP"
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ Make sure we're not already running; if so, exit here ┃
@@ -14,22 +26,33 @@ if [ -n "${PIDS}" ]; then
   exit 1
 fi
 
+
+function sourceFile() {
+  FILE="$1"
+  echo "source-ing ${FILE}"
+  if [[ -f "${FILE}" ]]; then
+    # shellcheck source="${FILE}"
+    source "${FILE}"
+  else
+    echo "ERROR: UNABLE TO SOURCE ${FILE}"
+  fi
+}
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ source ./launch.sh                       ┃
 #┃ which then sources ./{args.sh,setup.sh}  ┃
 #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-# LAUNCH_FILE="${DIR}/launch.sh"
-LAUNCH_FILE="/lus/grand/projects/datascience/foremans/locations/polaris/projects/saforem2/Megatron-DeepSpeed/ALCF/launch.sh"
-if [[ -f "${LAUNCH_FILE}" ]]; then
-  echo "source-ing ${LAUNCH_FILE}"
-  # shellcheck source=./launch.sh
-  source "${LAUNCH_FILE}"
-else
-  echo "ERROR: UNABLE TO SOURCE ${LAUNCH_FILE}"
-fi
+#
+sourceFile "${DIR}/launch.sh"
+# LAUNCH_FILE=""$
+# if [[ -f "${LAUNCH_FILE}" ]]; then
+#   echo "source-ing ${LAUNCH_FILE}"
+#   # shellcheck source=./launch.sh
+#   source "${LAUNCH_FILE}"
+# else
+#   echo "ERROR: UNABLE TO SOURCE ${LAUNCH_FILE}"
+# fi
 
 
 setup
-# singleGPU "$@" 2>&1 &
-# fullNode "$@" 2>&1 &
 elasticDistributed "$@"
+wait $!
