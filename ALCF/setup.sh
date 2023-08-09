@@ -158,8 +158,6 @@ setupPolaris()  {
     export MACHINE="Polaris"
     HOSTFILE="${PBS_NODEFILE}"
     # -- MPI / Comms Setup ----------------------------------------------------
-    # condaPolaris220908
-    # condaPolaris230110
     condaPolaris
     polarisMPI
     # export IBV_FORK_SAFE=1
@@ -168,31 +166,31 @@ setupPolaris()  {
   fi
 }
 
-# unset PYTHONUSERBASE
-export NCCL_DEBUG=warn
-export WANDB_CACHE_DIR="./cache/wandb"
-# CFLAGS="-I${CONDA_PREFIX}/include/"
-# LDFLAGS="-L${CONDA_PREFIX}/lib/"
-# export CFLAGS="${CFLAGS}"
-# export LDFLAGS="${LDFLAGS}"
-# export PATH="${CONDA_PREFIX}/bin:${PATH}"
-
-export NVME_PATH="${NVME_PATH}"
-export MPI_DEFAULTS="${MPI_DEFAULTS}"
-export MPI_ELASTIC="${MPI_ELASTIC}"
-export MPI_COMMAND="${MPI_COMMAND}"
-
-PYTHON_EXECUTABLE="$(which python3)"
-export PYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
-echo "USING PYTHON: $(which python3)"
-echo "CFLAGS: ${CFLAGS}"
-echo "LDFLAGS: ${LDFLAGS}"
-# source "${DIR}/args.sh"
-
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ SETUP CONDA + MPI ENVIRONMENT @ ALCF ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 setup() {
+  # unset PYTHONUSERBASE
+  export NCCL_DEBUG=warn
+  export WANDB_CACHE_DIR="./cache/wandb"
+  CFLAGS="-I${CONDA_PREFIX}/include/"
+  LDFLAGS="-L${CONDA_PREFIX}/lib/"
+  # export CFLAGS="${CFLAGS}"
+  # export LDFLAGS="${LDFLAGS}"
+  # export PATH="${CONDA_PREFIX}/bin:${PATH}"
+
+  export NVME_PATH="${NVME_PATH}"
+  export MPI_DEFAULTS="${MPI_DEFAULTS}"
+  export MPI_ELASTIC="${MPI_ELASTIC}"
+  export MPI_COMMAND="${MPI_COMMAND}"
+
+  PYTHON_EXECUTABLE="$(which python3)"
+  export PYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+  echo "USING PYTHON: $(which python3)"
+  echo "CFLAGS: ${CFLAGS}"
+  echo "LDFLAGS: ${LDFLAGS}"
+  # source "${DIR}/args.sh"
+
   if [[ $(hostname) == theta* ]]; then
     echo "Setting up ThetaGPU from $(hostname)"
     setupThetaGPU
@@ -203,6 +201,7 @@ setup() {
     echo "Unexpected hostname $(hostname)"
   fi
   export NODE_RANK=0
+  # export RANK=0
   export NNODES=$NHOSTS
   export GPUS_PER_NODE=$NGPU_PER_HOST
   export WORLD_SIZE=$NGPUS
