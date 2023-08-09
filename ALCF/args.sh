@@ -32,26 +32,34 @@ echo "DIR=$DIR"
 echo "------------------------"
 
 
-SETUP_FILE="${DIR}/setup.sh"
-if [[ -f "$SETUP_FILE" ]]; then
-  echo "source-ing ${SETUP_FILE}"
-  # shellcheck source=./setup.sh
-  source "$SETUP_FILE"
-  setupMPI
-else
-  echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
-fi
+# SETUP_FILE="${DIR}/setup.sh"
+# if [[ -f "$SETUP_FILE" ]]; then
+#   echo "source-ing ${SETUP_FILE}"
+#   # shellcheck source=./setup.sh
+#   source "$SETUP_FILE"
+#   setupMPI
+# else
+#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
+# fi
+# MODEL_SIZE=13
+echo "+++++++++++++++++++++++++++"
+export MODEL_SIZE_KEY="${MODEL_SIZE_KEY:-GPT13B}"
+echo "Using ${MODEL_SIZE_KEY}"
+echo "+++++++++++++++++++++++++++"
+
+sourceFile "${DIR}/model.sh"
+
+# MODEL_FILE="${DIR}/model.sh"
+# if [[ -f "$MODEL_FILE" ]]; then
+#   echo "source-ing ${MODEL_FILE}"
+#   # shellcheck source=./model.sh
+#   source "$MODEL_FILE"
+# else
+#   echo "ERROR: UNABLE TO SOURCE ${MODEL_FILE}"
+# fi
 
 MODEL_TYPE=${MODEL_TYPE:-gpt}
 MODEL_SIZE_KEY=${MODEL_SIZE_KEY:-"GPT1_5B"}
-MODEL_FILE="${DIR}/model.sh"
-if [[ -f "$MODEL_FILE" ]]; then
-  echo "source-ing ${MODEL_FILE}"
-  # shellcheck source=./model.sh
-  source "$MODEL_FILE"
-else
-  echo "ERROR: UNABLE TO SOURCE ${MODEL_FILE}"
-fi
 
 USER=$(whoami)
 
@@ -68,24 +76,34 @@ PARENT=$(dirname "$DIR")
 # ----------
 # NHOSTS=$(wc -l < "${PBS_NODEFILE}")
 export DDP_IMPL="local"   # FSDP | local | torch
-export USE_FLASH_ATTN=1  # 1 | 0
+export USE_FLASH_ATTN=0  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 # export SEQ_LEN=$(( 1024 * 26 ))
 export SEQ_LEN=${SEQ_LEN:-1024}
 export MPSIZE=${MPSIZE:-1}
 export PPSIZE=1
-export SPSIZE=${SPSIZE:-8}
+export SPSIZE=${SPSIZE:-1}
 export MICRO_BATCH=${MICRO_BATCH:-1}
-export ZERO_STAGE=${ZERO_STAGE:-0}  # 0 | 1 | 2 | 3
+export ZERO_STAGE=${ZERO_STAGE:-1}  # 0 | 1 | 2 | 3
 export NHOSTS="$NHOSTS"
 export GRADIENT_ACCUMULATION_STEPS=1
 export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 
-# export GLOBAL_BATCH_MULTIPLIER=1024
-# echo "Setting GLOBAL_BATCH = GLOBAL_BATCH_MULTIPLIER * NHOSTS"
-# echo "Explicitly: $GLOBAL_BATCH_MULTIPLIER * $NHOSTS"#
+# NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
+# # NGPU_PER_HOST=8
+# NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+# PARALLEL_SIZE=$((${NHOSTS}*${NGPU_PER_HOST}))
 
-# echo "NGPUS=${NGPUS}"
+export MODEL_TYPE=${MODEL_TYPE:-"gpt"} # set bert or gpt
+export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
+
+if [[ ${SP_TYPE} == "ds" ]]; then
+  echo "DS sequence parallel"
+  export SPSIZE=${PARALLEL_SIZE:-1}
+  export MPSIZE=1
+  export ZERO_STAGE=3
+  export USE_SEQUENCE_PARALLEL=0
+fi
 
 # if [ ${SEQ_LEN} -eq 8192 ]; then
 #     MICRO_BATCH=4
@@ -98,18 +116,24 @@ export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 # if [ ${SEQ_LEN} -eq 32768 ]; then
 #     MICRO_BATCH=1
 # fi
+NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+# NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
+echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
 
 GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
+
+echo "GB = NGPUS * MB * GAS = ${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} = ${GLOBAL_BATCH}"
+
 GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
+
+echo "GB = (NGPUS * MB * GAS) / (MP * PP * SP) = (${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS}) / (${MPSIZE} * ${PPSIZE} * ${SPSIZE}) = ${GLOBAL_BATCH}"
 # GLOBAL_BATCH=1
 export GLOBAL_BATCH="$GLOBAL_BATCH"
 
-# echo "Rescaling GLOBAL_BATCH := (GLOBAL_BATCH * MICRO_BATCH) = ({$GLOBAL_BATCH} * ${MICRO_BATCH})"
-# GLOBAL_BATCH=$((${GLOBAL_BATCH}*${MICRO_BATCH}))
-
 echo "--------------------------------"
 echo "GLOBAL_BATCH=${GLOBAL_BATCH}"
-# echo "GLOBAL_BATCH_ALT=${GLOBAL_BATCH_ALT}"
 echo "--------------------------------"
 
 
@@ -117,9 +141,14 @@ echo "--------------------------------"
 # ┃ Data paths ┃
 # ┗━━━━━━━━━━━━┛
 # DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
-DATA_PATH="/home/czh5/genome/Megatron-DeepSpeed/dataset/BookCorpusDataset_text_document"
-VOCAB_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-vocab.json"
-MERGE_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-merges.txt"
+DATA_DIR="/lus/grand/projects/datascience/foremans/locations/polaris/projects/saforem2/Megatron-DeepSpeed/dataset"
+DATA_PATH="${DATA_DIR}/BookCorpusDataset_text_document"
+VOCAB_FILE="${DATA_DIR}/gpt2-vocab.json"
+MERGE_FILE="${DATA_DIR}/gpt2-merges.txt"
+
+# DATA_PATH="/home/czh5/genome/Megatron-DeepSpeed/dataset/BookCorpusDataset_text_document"
+# VOCAB_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-vocab.json"
+# MERGE_FILE="/home/czh5/genome/Megatron-DeepSpeed/dataset/gpt2-merges.txt"
 # DATA_PATH="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/BookCorpusDataset_text_document"
 # VOCAB_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/gpt2-vocab.json"
 # MERGE_FILE="/lus/eagle/projects/MDClimSim/chengming/gpt_datasets1/gpt2-merges.txt"
@@ -181,16 +210,35 @@ else
   DATA_LOAD_ARGS=""
 fi
 
+# Set to cpu for offloading to cpu for larger models
+OFFLOAD_DEVICE="cpu"
+CPU_OPTIM=" --cpu-optimizer"
+
+# # Set to none and empty string for no cpu offloading
+# OFFLOAD_DEVICE="none"  
+# CPU_OPTIM=" "
+
 # ┏━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Config ┃
 # ┗━━━━━━━━━━━━━━━━━━┛
 DS_CONFIG=${PARENT}/ds_config-gpt.json
 
+# "train_batch_size" : $GLOBAL_BATCH,
+#
+# "offload_param": {
+#   "device": "cpu",
+#   "nvme_path": "/local/scratch/",
+#   "pin_memory": true,
+#   "buffer_count": 5,
+#   "buffer_size": 1e8,
+#   "max_in_cpu": 1e9
+# }
+#
 if [[ $ZERO_STAGE == "3" ]] ; then
 cat <<EOT > "$DS_CONFIG"
 {
-  "train_batch_size" : $GLOBAL_BATCH,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
+  "train_batch_size" : $GLOBAL_BATCH,
   "steps_per_print": 1,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "zero_optimization": {
@@ -202,7 +250,14 @@ cat <<EOT > "$DS_CONFIG"
     "contiguous_gradients": true,
     "overlap_comm": true,
     "reduce_bucket_size": 90000000,
-    "sub_group_size": 5e7
+    "sub_group_size": 5e7,
+    "offload_optimizer": {
+      "device": "$OFFLOAD_DEVICE",
+      "buffer_count": 4,
+      "pipeline_read": false,
+      "pipeline_write": false,
+      "pin_memory": true
+    }
   },
   "gradient_clipping": 1.0,
   "fp16": {
@@ -237,19 +292,37 @@ cat <<EOT > "$DS_CONFIG"
   },
   "wandb": {
     "enabled": false,
-    "group": "megatron-DS0",
-    "project": "megatron-DS"
+    "group": "megatron-DS",
+    "project": "megatron-DS-rebase"
   }
 }
 EOT
 else
+# "train_batch_size" : $GLOBAL_BATCH,
+# 'offload_optimizer': 'cpu'
+  # "train_batch_size" : $GLOBAL_BATCH,
+# "offload_optimizer": {
+#   "device": "cpu",
+#   "nvme_path": "/raid/scratch/"
+# }
+#
+# "optimizer": {
+#    "type": "AdamW",
+#    "params": {
+#      "lr": 0.001,
+#      "betas": [0.8, 0.999],
+#      "eps": 1e-8,
+#      "weight_decay": 3e-7
+#    }
+# },
+
 cat <<EOT > "$DS_CONFIG"
 {
-  "train_batch_size" : $GLOBAL_BATCH,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "steps_per_print": 1,
   "wall_clock_breakdown" : true,
+  "zero_force_ds_cpu_optimizer": true,
   "zero_optimization": {
     "stage": $ZERO_STAGE,
     "allgather_partitions": true,
@@ -257,15 +330,30 @@ cat <<EOT > "$DS_CONFIG"
     "allgather_bucket_size": 5e8,
     "overlap_comm": true,
     "contiguous_gradients": true,
-    "offload_param": {
-      "device": "cpu",
-      "nvme_path": "/raid/scratch",
-      "pin_memory": false
-    },
     "offload_optimizer": {
-      "device": "cpu",
-      "nvme_path": "/raid/scratch/"
+      "device": "$OFFLOAD_DEVICE",
+      "buffer_count": 4,
+      "pipeline_read": false,
+      "pipeline_write": false,
+      "pin_memory": true
     }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "params": {
+      "lr": 0.001,
+      "betas": [0.8, 0.999],
+      "eps": 1e-8,
+      "weight_decay": 3e-7
+    }
+  },
+  "scheduler": {
+   "type": "WarmupLR",
+   "params": {
+     "warmup_min_lr": 0,
+     "warmup_max_lr": 0.001,
+     "warmup_num_steps": 1000
+   }
   },
   "fp16": {
     "enabled": true,
@@ -286,13 +374,56 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": false,
+    "enabled": true,
     "group": "megatron-DS0",
     "project": "megatron-DS"
   }
 }
 EOT
 fi
+
+# "optimizer": {
+#   "type": "OneBitAdam",
+#   "params": {
+#     "lr": 0.001,
+#     "betas": [
+#       0.8,
+#       0.999
+#     ],
+#     "eps": 1e-8,
+#     "weight_decay": 3e-7,
+#     "freeze_step": 400,
+#     "cuda_aware": false,
+#     "comm_backend_name": "nccl"
+#   }
+# },
+#
+# "optimizer": "Adam",
+# "optimizer": {
+#   "type": "OneBitAdam",
+#   "params": {
+#     "lr": 0.001,
+#     "betas": [
+#       0.8,
+#       0.999
+#     ],
+#     "eps": 1e-8,
+#     "weight_decay": 3e-7,
+#     "freeze_step": 400,
+#     "cuda_aware": true,
+#     "comm_backend_name": "nccl"
+#   }
+# },
+#
+#
+# 'deepspeed_mpi': True,
+# 'ds_pipeline_enabled': False,
+# 'rank': 0,
+# 'world_size': 1,
+# 'transformer_pipeline_model_parallel_size': 1,
+# 'data_parallel_size': 1,
+# 'virtual_pipeline_model_parallel_ size': None,
+
 
 # ┏━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Arguments ┃
@@ -320,6 +451,7 @@ fi
 gpt_args="\
   --seed ${RANDOM} \
   --DDP-impl ${DDP_IMPL} \
+  --cpu-optimizer \
   --pipeline-model-parallel-size ${PPSIZE} \
   --tensor-model-parallel-size ${MPSIZE} \
   --sequence-parallel-size ${SPSIZE} \
@@ -347,10 +479,13 @@ gpt_args="\
   --save-interval 1000 \
   --eval-interval 1000 \
   --eval-iters 1 \
+  --override-opt_param-scheduler \
   --tensorboard-dir ${TENSORBOARD_DIR} \
   --log-timers-to-tensorboard \
-  --tensorboard-log-interval 1" \
-  ${ARG_ENABLE_SEQUENCE_PARALLEL}
+  --tensorboard-log-interval 1 \
+  ${ARG_ENABLE_SEQUENCE_PARALLEL}"
+# --tensorboard-log-interval 1" \
+# ${ARG_ENABLE_SEQUENCE_PARALLEL}
 
 # --recompute-activations \
 # --recompute-granularity full \
@@ -381,5 +516,7 @@ if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
     --sequence-parallel \
     ${gpt_args}"
 fi
-
-export gpt_args="$gpt_args"
+export gpt_args="${gpt_args} $CPU_OPTIM ${ds_args}"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+echo "gpt_args: ${gpt_args}"
+echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
