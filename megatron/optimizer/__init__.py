@@ -61,7 +61,119 @@ def get_param_groups(modules,
 
     return param_groups
 
+
+# def get_megatron_optimizer_dep(model,
+#                            no_weight_decay_cond=None,
+#                            scale_lr_cond=None,
+#                            lr_mult=1.0):
+#
+
 def get_megatron_optimizer(model,
+                           no_weight_decay_cond=None,
+                           scale_lr_cond=None,
+                           lr_mult=1.0):
+    args = get_args()
+
+    # Base optimizer.
+    param_groups = get_param_groups(model,
+                                    no_weight_decay_cond,
+                                    scale_lr_cond,
+                                    lr_mult)
+    if args.create_moe_param_group:
+        from deepspeed.moe.utils import split_params_into_different_moe_groups_for_optimizer
+        param_groups = split_params_into_different_moe_groups_for_optimizer(param_groups)
+
+    if args.cpu_optimizer:
+        assert args.optimizer == 'adam', 'CPU offloading is for Adam'
+        if args.cpu_torch_adam:
+            cpu_adam_optimizer = torch.optim.AdamW
+        else:
+            from deepspeed.ops.adam import DeepSpeedCPUAdam
+            cpu_adam_optimizer = DeepSpeedCPUAdam
+        optimizer = cpu_adam_optimizer(param_groups,
+                                       lr=args.lr,
+                                       weight_decay=args.weight_decay,
+                                       betas=(args.adam_beta1, args.adam_beta2),
+                                       eps=args.adam_eps)
+    else:
+        if args.optimizer == 'adam':
+            optimizer = Adam(param_groups,
+                            lr=args.lr,
+                            weight_decay=args.weight_decay,
+                            betas=(args.adam_beta1, args.adam_beta2),
+                            eps=args.adam_eps)
+        elif args.optimizer == 'sgd':
+            optimizer = SGD(param_groups,
+                            lr=args.lr,
+                            weight_decay=args.weight_decay,
+                            momentum=args.sgd_momentum)
+        else:
+            raise Exception('{} optimizer is not supported.'.format(
+            args.optimizer))
+
+    if args.deepspeed:
+        return optimizer
+
+    # Determine whether the params have main-grad field.
+    params_have_main_grad = False
+    if args.DDP_impl == 'local':
+        params_have_main_grad = True
+
+    # Mixed precision optimizer.
+    # - Note: both the Float16Optimizer and the DistributedOptimizer inherit
+    #   from the MixedPrecisionOptimizer, which manages any optimizer where
+    #   the model params and main params are distinct.
+    if args.fp16 or args.bf16 or args.use_distributed_optimizer:
+
+        # Grad scaler:
+        #    if loss-scale is provided, instantiate the constant scaler.
+        #    if we are using fp16 and loss-scale is not present, use a
+        #       dynamic scaler.
+        #    otherwise we are running in bf16 with no loss-scale so
+        #       leave it as None.
+        grad_scaler = None
+
+        # Constant loss scale.
+        if args.loss_scale:
+            grad_scaler = ConstantGradScaler(args.loss_scale)
+
+        # Dynamic loss scale.
+        else:
+            if args.fp16:
+                grad_scaler = DynamicGradScaler(
+                    initial_scale=args.initial_loss_scale,
+                    min_scale=args.min_loss_scale,
+                    growth_factor=2.0,
+                    backoff_factor=0.5,
+                    growth_interval=args.loss_scale_window,
+                    hysteresis=args.hysteresis)
+
+        # Megatron optimizer.
+        opt_ty = DistributedOptimizer \
+            if args.use_distributed_optimizer else \
+            Float16OptimizerWithFloat16Params
+        return opt_ty(optimizer,
+                      args.clip_grad,
+                      args.log_num_zeros_in_grad,
+                      params_have_main_grad,
+                      args.use_contiguous_buffers_in_local_ddp,
+                      args.fp16,
+                      args.bf16,
+                      args.params_dtype,
+                      grad_scaler,
+                      model)
+
+    # FP32.
+    return FP32Optimizer(optimizer, args.clip_grad,
+                         args.log_num_zeros_in_grad,
+                         params_have_main_grad,
+                         args.use_contiguous_buffers_in_local_ddp,
+                         model)
+
+
+
+
+def get_megatron_optimizer_dep(model,
                            no_weight_decay_cond=None,
                            scale_lr_cond=None,
                            lr_mult=1.0):
@@ -93,13 +205,13 @@ def get_megatron_optimizer(model,
     #     raise Exception('{} optimizer is not supported.'.format(
     #         args.optimizer))
 
-    optimizer = deepspeed.ops.adam.DeepSpeedCPUAdam(
-        param_groups,
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        betas=(args.adam_beta1, args.adam_beta2),
-        eps=args.adam_eps
-    )
+    # optimizer = deepspeed.ops.adam.DeepSpeedCPUAdam(
+    #     param_groups,
+    #     lr=args.lr,
+    #     weight_decay=args.weight_decay,
+    #     betas=(args.adam_beta1, args.adam_beta2),
+    #     eps=args.adam_eps
+    # )
 
     # optimizer = torch.optim.AdamW(
     #     param_groups,
