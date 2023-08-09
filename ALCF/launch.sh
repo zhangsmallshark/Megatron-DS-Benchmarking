@@ -8,35 +8,29 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
   SOURCE=$(readlink "$SOURCE")
   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 done
+
+function sourceFile() {
+  FILE="$1"
+  echo "source-ing ${FILE}"
+  if [[ -f "${FILE}" ]]; then
+    # shellcheck source=./setup.sh
+    source "${FILE}"
+  else
+    echo "ERROR: UNABLE TO SOURCE ${FILE}"
+  fi
+}
+
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
-
 
 MASTER_ADDR=$(uname -n)
 MASTER_PORT=20010
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 MPI_WRAPPER="${SCRIPT_DIR}/mpi_wrapper"
 
-# SETUP_FILE="${DIR}/setup.sh"
-# if [[ -f "${SETUP_FILE}" ]]; then
-#   echo "source-ing ${SETUP_FILE}"
-#   # shellcheck source=./setup.sh
-#   source "${SETUP_FILE}"
-# else
-#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
-# fi
-
-ARGS_FILE="${DIR}/args.sh"
-if [[ -f "${ARGS_FILE}" ]]; then
-  echo "source-ing ${ARGS_FILE}"
-  # shellcheck source=./args.sh
-  source "${ARGS_FILE}"
-else
-  echo "ERROR: UNABLE TO SOURCE ${ARGS_FILE}"
-fi
+sourceFile "${DIR}/args.sh"
 
 MAIN="${PARENT}/pretrain_${MODEL_TYPE}.py"
-
 
 printJobInfo() {
   echo "Job started at: ${TSTAMP} on $(hostname)"
@@ -116,6 +110,7 @@ elasticDistributed() {
   NHOSTS=$(wc -l < "${HOSTFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
   NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  export WORLD_SIZE="${NGPUS}"
   echo "\
     Running on ${NHOSTS} hosts \
     with ${NGPU_PER_HOST} GPUs each \
@@ -131,9 +126,15 @@ elasticDistributed() {
   )
   EXEC="${EXEC_STR[*]}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts${NHOSTS}-ngpu${NGPUS}-$TSTAMP.log"
+  echo "Writing logs to: ${OUTPUT_LOG}"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
-#   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
-  launchJob "$@"
+  # launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  # launchJob "$@"
+  # printJobInfo | tee -a "${OUTPUT_LOG}"
+  # launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  PID=$!
+  wait $PID
 }
