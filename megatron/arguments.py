@@ -57,10 +57,14 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     args.ds_pipeline_enabled = not args.no_pipeline_parallel
 
     # Args from environment
-    args.rank = int(os.getenv('RANK', '0'))
-    args.world_size = int(os.getenv("WORLD_SIZE", '1'))
-        
+    import megatron.dist as dist
+    args.rank = dist.get_rank()
+    args.world_size = dist.get_world_size()
+    # args.rank = int(os.getenv('RANK', '0'))
+    # args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+
     return args
+
 
 def validate_args(args, defaults={}):
     # Tensor model parallel size.
@@ -842,6 +846,13 @@ def _add_training_args(parser):
                        dest='gradient_accumulation_fusion')
     group.add_argument('--ds-inference', action='store_true',
                        help='DeepSpeed inference engine being used')
+    group.add_argument(
+        '--cpu-optimizer',
+        action='store_true',
+        help='Run optimizer on CPU'
+    )
+    group.add_argument('--cpu_torch_adam', action='store_true',
+                       help='Use Torch Adam as optimizer on CPU.')
     group.add_argument('--no-pipeline-parallel', action='store_true',
                        help='Disable pipeline parallelism')
     group.add_argument('--use-tutel', action='store_true',
