@@ -1,7 +1,6 @@
 #!/bin/bash --login
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
@@ -21,19 +20,27 @@ if [ -n "${PIDS}" ]; then
   exit 1
 fi
 
+function sourceFile() {
+  FILE="$1"
+  echo "source-ing ${FILE}"
+  if [[ -f "${FILE}" ]]; then
+    # shellcheck source="${FILE}"
+    source "${FILE}"
+  else
+    echo "ERROR: UNABLE TO SOURCE ${FILE}"
+  fi
+}
+
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ source ./launch.sh                       ┃
 #┃ which then sources ./{args.sh,setup.sh}  ┃
 #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 LAUNCH_FILE="${DIR}/launch.sh"
-if [[ -f "${LAUNCH_FILE}" ]]; then
-  echo "source-ing ${LAUNCH_FILE}"
-  # shellcheck source=./launch.sh
-  source "${LAUNCH_FILE}"
-else
-  echo "ERROR: UNABLE TO SOURCE ${LAUNCH_FILE}"
-fi
 
+sourceFile "${DIR}/setup.sh"
+sourceFile "${DIR}/model.sh"
+sourceFile "${DIR}/args.sh"
+sourceFile "${LAUNCH_FILE}"
 
 setup
 # singleGPU "$@" 2>&1 &
@@ -42,6 +49,7 @@ TORCH_VERSION=$(python3 -c 'import torch; print(torch.__version__)')
 export TORCH_VERSION=$TORCH_VERSION
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # elasticDistributed "$@" 2>&1 &
-elasticDistributed "$@"
-PID=$!
-wait $PID
+# elasticDistributed "$@"
+# PID=$!
+# wait $PID
+elasticDistributed "$@" 2>&1 &
