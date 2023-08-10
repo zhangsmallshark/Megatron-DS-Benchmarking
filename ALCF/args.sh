@@ -17,12 +17,22 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
-# echo "DIR: $DIR"
-# echo "DIR1: $DIR1"
-# echo "current_dir: $SCRIPT_DIR"
-# echo "current file: $SCRIPT_PATH"
-# echo "DIR2: $DIR2"
-#
+function sourceFile() {
+  FILE="$1"
+  echo "source-ing ${FILE}"
+  if [[ -f "${FILE}" ]]; then
+    # shellcheck source="${FILE}"
+    source "${FILE}"
+  else
+    echo "ERROR: UNABLE TO SOURCE ${FILE}"
+  fi
+}
+
+USER=$(whoami)
+
+DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+PARENT=$(dirname "$DIR")
+
 echo "------------------------"
 echo "SCRIPT_DIR=$SCRIPT_DIR"
 echo "SCRIPT_PATH=$SCRIPT_PATH"
@@ -31,40 +41,14 @@ echo "SOURCE=$SOURCE"
 echo "DIR=$DIR"
 echo "------------------------"
 
-
-# SETUP_FILE="${DIR}/setup.sh"
-# if [[ -f "$SETUP_FILE" ]]; then
-#   echo "source-ing ${SETUP_FILE}"
-#   # shellcheck source=./setup.sh
-#   source "$SETUP_FILE"
-#   setupMPI
-# else
-#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
-# fi
-# MODEL_SIZE=13
-echo "+++++++++++++++++++++++++++"
 export MODEL_SIZE_KEY="${MODEL_SIZE_KEY:-GPT13B}"
-echo "Using ${MODEL_SIZE_KEY}"
-echo "+++++++++++++++++++++++++++"
+echo "+=========================+"
+echo "| Using ${MODEL_SIZE_KEY}"
+echo "+=========================+"
 
-sourceFile "${DIR}/model.sh"
-
-# MODEL_FILE="${DIR}/model.sh"
-# if [[ -f "$MODEL_FILE" ]]; then
-#   echo "source-ing ${MODEL_FILE}"
-#   # shellcheck source=./model.sh
-#   source "$MODEL_FILE"
-# else
-#   echo "ERROR: UNABLE TO SOURCE ${MODEL_FILE}"
-# fi
+sourceFile "./${DIR}/model.sh"
 
 MODEL_TYPE=${MODEL_TYPE:-gpt}
-MODEL_SIZE_KEY=${MODEL_SIZE_KEY:-"GPT1_5B"}
-
-USER=$(whoami)
-
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname "$DIR")
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
@@ -76,17 +60,16 @@ PARENT=$(dirname "$DIR")
 # ----------
 # NHOSTS=$(wc -l < "${PBS_NODEFILE}")
 export DDP_IMPL="local"   # FSDP | local | torch
-export USE_FLASH_ATTN=0  # 1 | 0
+export USE_FLASH_ATTN=${USE_FLASH_ATTN:-1}  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
-# export SEQ_LEN=$(( 1024 * 26 ))
 export SEQ_LEN=${SEQ_LEN:-1024}
 export MPSIZE=${MPSIZE:-1}
-export PPSIZE=1
+export PPSIZE=${PPSIZE:-1}
 export SPSIZE=${SPSIZE:-1}
 export MICRO_BATCH=${MICRO_BATCH:-1}
 export ZERO_STAGE=${ZERO_STAGE:-1}  # 0 | 1 | 2 | 3
 export NHOSTS="$NHOSTS"
-export GRADIENT_ACCUMULATION_STEPS=1
+export GRADIENT_ACCUMULATION_STEPS=${GAS:-1}
 export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 
 # NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
@@ -98,13 +81,40 @@ export MODEL_TYPE=${MODEL_TYPE:-"gpt"} # set bert or gpt
 export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
 
 if [[ ${SP_TYPE} == "ds" ]]; then
-  echo "DS sequence parallel"
+  echo "Using DS sequence parallel"
   export SPSIZE=${PARALLEL_SIZE:-1}
   export MPSIZE=1
   export ZERO_STAGE=3
   export USE_SEQUENCE_PARALLEL=0
-fi
+elif [[ ${SP_TYPE} == "megatron" ]]; then
+    echo "Megatron's sequence parallel"
+      # if [ ${SEQ_LEN} -eq 8192 ]; then
+      #     PARALLEL_SIZE=8
+      # fi
+      # if [ ${SEQ_LEN} -eq 16384 ]; then
+      #     PARALLEL_SIZE=8
+      # fi
+      # if [ ${SEQ_LEN} -eq 32768 ]; then
+      #     PARALLEL_SIZE=16
+      # fi
+      # if [ ${SEQ_LEN} -eq 65536 ]; then
+      #     PARALLEL_SIZE=16
+      # fi
+    export SPSIZE=1
+    export MPSIZE=${PARALLEL_SIZE:-${WORLD_SIZE}}
+    export ZERO_STAGE=0
+    export USE_SEQUENCE_PARALLEL=1
+  else 
+    echo "Unexpected SP_TYPE: ${SP_TYPE}"
+    exit 1
+  fi
 
+echo "+..................................................+"
+echo "| SP_SIZE: ${SPSIZE}"
+echo "| MPSIZE: ${MPSIZE}"
+echo "| ZERO_STAGE: ${ZERO_STAGE}"
+echo "| USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}"
+echo "+..................................................+"
 # if [ ${SEQ_LEN} -eq 8192 ]; then
 #     MICRO_BATCH=4
 # fi
@@ -122,12 +132,12 @@ NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
 # NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
 echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
 
-GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
-
+# GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
+# GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
+GLOBAL_BATCH=$(( NGPUS * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS ))
 echo "GB = NGPUS * MB * GAS = ${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} = ${GLOBAL_BATCH}"
 
-GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
-
+GLOBAL_BATCH=$(( GLOBAL_BATCH / MPSIZE / PPSIZE / SPSIZE))
 echo "GB = (NGPUS * MB * GAS) / (MP * PP * SP) = (${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS}) / (${MPSIZE} * ${PPSIZE} * ${SPSIZE}) = ${GLOBAL_BATCH}"
 # GLOBAL_BATCH=1
 export GLOBAL_BATCH="$GLOBAL_BATCH"
@@ -141,7 +151,7 @@ echo "--------------------------------"
 # ┃ Data paths ┃
 # ┗━━━━━━━━━━━━┛
 # DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
-DATA_DIR="/lus/grand/projects/datascience/foremans/locations/polaris/projects/saforem2/Megatron-DeepSpeed/dataset"
+DATA_DIR="${PARENT}/dataset"
 DATA_PATH="${DATA_DIR}/BookCorpusDataset_text_document"
 VOCAB_FILE="${DATA_DIR}/gpt2-vocab.json"
 MERGE_FILE="${DATA_DIR}/gpt2-merges.txt"
@@ -223,17 +233,6 @@ CPU_OPTIM=" --cpu-optimizer"
 # ┗━━━━━━━━━━━━━━━━━━┛
 DS_CONFIG=${PARENT}/ds_config-gpt.json
 
-# "train_batch_size" : $GLOBAL_BATCH,
-#
-# "offload_param": {
-#   "device": "cpu",
-#   "nvme_path": "/local/scratch/",
-#   "pin_memory": true,
-#   "buffer_count": 5,
-#   "buffer_size": 1e8,
-#   "max_in_cpu": 1e9
-# }
-#
 if [[ $ZERO_STAGE == "3" ]] ; then
 cat <<EOT > "$DS_CONFIG"
 {
@@ -257,6 +256,15 @@ cat <<EOT > "$DS_CONFIG"
       "pipeline_read": false,
       "pipeline_write": false,
       "pin_memory": true
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "params": {
+      "lr": 0.001,
+      "betas": [0.8, 0.999],
+      "eps": 1e-8,
+      "weight_decay": 3e-7
     }
   },
   "gradient_clipping": 1.0,
@@ -291,8 +299,8 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": false,
-    "group": "megatron-DS",
+    "enabled": true,
+    "group": "megatron-DS-rebase",
     "project": "megatron-DS-rebase"
   }
 }
@@ -375,8 +383,8 @@ cat <<EOT > "$DS_CONFIG"
   },
   "wandb": {
     "enabled": true,
-    "group": "megatron-DS0",
-    "project": "megatron-DS"
+    "group": "megatron-DS-rebase",
+    "project": "megatron-DS-rebase"
   }
 }
 EOT
@@ -451,7 +459,6 @@ fi
 gpt_args="\
   --seed ${RANDOM} \
   --DDP-impl ${DDP_IMPL} \
-  --cpu-optimizer \
   --pipeline-model-parallel-size ${PPSIZE} \
   --tensor-model-parallel-size ${MPSIZE} \
   --sequence-parallel-size ${SPSIZE} \
