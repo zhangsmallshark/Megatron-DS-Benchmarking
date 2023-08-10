@@ -1,4 +1,4 @@
-#!/bin/bash --login
+#!/bin/bash -login
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 while [ -L "$SCRIPT_PATH" ]; do
@@ -46,7 +46,7 @@ echo "+=========================+"
 echo "| Using ${MODEL_SIZE_KEY}"
 echo "+=========================+"
 
-sourceFile "./${DIR}/model.sh"
+sourceFile "${DIR}/model.sh"
 
 MODEL_TYPE=${MODEL_TYPE:-gpt}
 
@@ -456,41 +456,42 @@ fi
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
 # --sequence-parallel \
-gpt_args="\
-  --seed ${RANDOM} \
-  --DDP-impl ${DDP_IMPL} \
-  --pipeline-model-parallel-size ${PPSIZE} \
-  --tensor-model-parallel-size ${MPSIZE} \
-  --sequence-parallel-size ${SPSIZE} \
-  --num-layers ${NLAYERS} \
-  --hidden-size ${HIDDEN} \
-  --num-attention-heads ${ATEN_HEADS} \
-  --micro-batch-size ${MICRO_BATCH} \
-  --global-batch-size ${GLOBAL_BATCH} \
-  --seq-length ${SEQ_LEN} \
-  --max-position-embeddings ${SEQ_LEN} \
-  --train-iters 5 \
-  --lr-decay-iters 320000 \
-  --num-workers 1 \
-  $DATA_LOAD_ARGS \
-  --data-impl mmap \
-  --split 949,50,1 \
-  --distributed-backend nccl \
-  --lr 0.00015 \
-  --lr-decay-style cosine \
-  --min-lr 1.0e-5 \
-  --weight-decay 1e-2 \
-  --clip-grad 1.0 \
-  --lr-warmup-fraction .01 \
-  --log-interval 1 \
-  --save-interval 1000 \
-  --eval-interval 1000 \
-  --eval-iters 1 \
-  --override-opt_param-scheduler \
-  --tensorboard-dir ${TENSORBOARD_DIR} \
-  --log-timers-to-tensorboard \
-  --tensorboard-log-interval 1 \
-  ${ARG_ENABLE_SEQUENCE_PARALLEL}"
+gpt_args=(
+  "--seed ${RANDOM}"
+  "--DDP-impl ${DDP_IMPL}"
+  "--pipeline-model-parallel-size ${PPSIZE}"
+  "--tensor-model-parallel-size ${MPSIZE}"
+  "--sequence-parallel-size ${SPSIZE}"
+  "--num-layers ${NLAYERS}"
+  "--hidden-size ${HIDDEN}"
+  "--num-attention-heads ${ATEN_HEADS}"
+  "--micro-batch-size ${MICRO_BATCH}"
+  "--global-batch-size ${GLOBAL_BATCH}"
+  "--seq-length ${SEQ_LEN}"
+  "--max-position-embeddings ${SEQ_LEN}"
+  "--train-iters 5"
+  "--lr-decay-iters 320000"
+  "--num-workers 1"
+  "$DATA_LOAD_ARGS"
+  "--data-impl mmap"
+  "--split 949,50,1"
+  "--distributed-backend nccl"
+  "--lr 0.00015"
+  "--lr-decay-style cosine"
+  "--min-lr 1.0e-5"
+  "--weight-decay 1e-2"
+  "--clip-grad 1.0"
+  "--lr-warmup-fraction .01"
+  "--log-interval 1"
+  "--save-interval 1000"
+  "--eval-interval 1000"
+  "--eval-iters 1"
+  "--override-opt_param-scheduler"
+  "--tensorboard-dir ${TENSORBOARD_DIR}"
+  "--log-timers-to-tensorboard"
+  "--tensorboard-log-interval 1"
+  "${ARG_ENABLE_SEQUENCE_PARALLEL}"
+)
 # --tensorboard-log-interval 1" \
 # ${ARG_ENABLE_SEQUENCE_PARALLEL}
 
@@ -499,31 +500,50 @@ gpt_args="\
 # --recompute-method uniform \
 # --recompute-num-layers 1 \
 if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
-  gpt_args="\
-    --checkpoint-activations \
-    --checkpoint-num-layers 1 \
-    ${gpt_args}"
+  gpt_args=(
+    "--checkpoint-activations"
+    "--checkpoint-num-layers 1"
+    "${gpt_args[*]}"
+  )
     # --distribute-checkpointed-activations \
 fi
 
 if [[ "$DDP_IMPL" != "FSDP" ]] ; then
-  gpt_args="${gpt_args} --fp16"
+  gpt_args=(
+    "${gpt_args[*]}"
+    "--fp16"
+  )
 else
-  gpt_args="${gpt_args} --bf16"
+  gpt_args=(
+    "${gpt_args[*]}"
+    "--bf16"
+  )
 fi
 
 if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
-  gpt_args="\
-    --use-flash-attn \
-    ${gpt_args}"
+  gpt_args=(
+    "${gpt_args[*]}"
+    "--use-flash-attn"
+  )
+  # gpt_args="\
+  #   --use-flash-attn \
+  #   ${gpt_args}"
 fi
 
 if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
-  gpt_args="\
-    --sequence-parallel \
-    ${gpt_args}"
+  # gpt_args="\
+  #   --sequence-parallel \
+  #   ${gpt_args}"
+  gpt_args=(
+    "${gpt_args[*]}"
+    "--sequence-parallel"
+  )
 fi
-export gpt_args="${gpt_args} $CPU_OPTIM ${ds_args}"
+export gpt_args=(
+  "${gpt_args[*]}"
+  "$CPU_OPTIM" 
+  "${ds_args}"
+)
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-echo "gpt_args: ${gpt_args}"
+echo "gpt_args: ${gpt_args[*]}"
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
