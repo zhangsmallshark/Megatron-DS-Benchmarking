@@ -143,7 +143,10 @@ setupThetaGPU() {
     export MACHINE="ThetaGPU"
     HOSTFILE="${COBALT_NODEFILE}"
     # -- Python / Conda setup -------------------------------------------------
-    condaThetaGPU_mtanaka
+    # condaThetaGPU_mtanaka
+    module load conda/2023-01-11
+    conda activate base
+    conda activate /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-04-26
     thetagpuMPI
   else
     echo "Unexpected hostname: $(hostname)"
