@@ -1,3 +1,11 @@
+*.done
+*.e5*
+*.o5*
+*.e6*
+*.o6*
+__pycache__
+*.DS_Store
+*.npy
 __pycache__
 *.so
 build
