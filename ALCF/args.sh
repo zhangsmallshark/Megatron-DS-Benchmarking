@@ -60,10 +60,10 @@ MODEL_TYPE=${MODEL_TYPE:-gpt}
 # ----------
 # NHOSTS=$(wc -l < "${PBS_NODEFILE}")
 export DDP_IMPL="local"   # FSDP | local | torch
-export USE_FLASH_ATTN=${USE_FLASH_ATTN:-1}  # 1 | 0
+export USE_FLASH_ATTN=${USE_FLASH_ATTN:-0}  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 export SEQ_LEN=${SEQ_LEN:-1024}
-export MPSIZE=${MPSIZE:-1}
+# export MPSIZE=${MPSIZE:-1}
 export PPSIZE=${PPSIZE:-1}
 export SPSIZE=${SPSIZE:-1}
 export MICRO_BATCH=${MICRO_BATCH:-1}
@@ -101,7 +101,7 @@ elif [[ ${SP_TYPE} == "megatron" ]]; then
       #     PARALLEL_SIZE=16
       # fi
     export SPSIZE=1
-    export MPSIZE=${PARALLEL_SIZE:-${WORLD_SIZE}}
+    export MPSIZE="${WORLD_SIZE}"
     export ZERO_STAGE=0
     export USE_SEQUENCE_PARALLEL=1
   else 
@@ -126,20 +126,31 @@ echo "+..................................................+"
 # if [ ${SEQ_LEN} -eq 32768 ]; then
 #     MICRO_BATCH=1
 # fi
-NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+#
+if [[ $(hostname) == theta* ]]; then
+  echo "Setting up ThetaGPU from $(hostname)"
+  HOSTFILE="${COBALT_NODEFILE}"
+elif [[ $(hostname) == x* ]]; then
+  echo "Setting up Polaris from $(hostname)"
+  HOSTFILE="${PBS_NODEFILE}"
+else
+  echo "Unexpected hostname $(hostname)"
+fi
+
+NHOSTS=$(wc -l < "${HOSTFILE}")
 NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
 NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
-# NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
+# # NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
 echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
 
-# GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
+# GLOBAL_BATCH=1
 # GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
+# GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
 GLOBAL_BATCH=$(( NGPUS * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS ))
 echo "GB = NGPUS * MB * GAS = ${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} = ${GLOBAL_BATCH}"
 
 GLOBAL_BATCH=$(( GLOBAL_BATCH / MPSIZE / PPSIZE / SPSIZE))
 echo "GB = (NGPUS * MB * GAS) / (MP * PP * SP) = (${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS}) / (${MPSIZE} * ${PPSIZE} * ${SPSIZE}) = ${GLOBAL_BATCH}"
-# GLOBAL_BATCH=1
 export GLOBAL_BATCH="$GLOBAL_BATCH"
 
 echo "--------------------------------"
@@ -457,11 +468,12 @@ fi
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
 # --sequence-parallel \
 gpt_args=(
+  "--cpu-optimizer"
   "--seed ${RANDOM}"
   "--DDP-impl ${DDP_IMPL}"
-  "--pipeline-model-parallel-size ${PPSIZE}"
-  "--tensor-model-parallel-size ${MPSIZE}"
-  "--sequence-parallel-size ${SPSIZE}"
+  "--pipeline-model-parallel-size ${PPSIZE:-1}"
+  "--tensor-model-parallel-size ${MPSIZE:-1}"
+  "--sequence-parallel-size ${SPSIZE:-1}"
   "--num-layers ${NLAYERS}"
   "--hidden-size ${HIDDEN}"
   "--num-attention-heads ${ATEN_HEADS}"
@@ -539,10 +551,13 @@ if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
     "--sequence-parallel"
   )
 fi
+
+# OFFLOAD_DEVICE="cpu"
+# CPU_OPTIM=" --cpu-optimizer"
+
 export gpt_args=(
   "${gpt_args[*]}"
-  "$CPU_OPTIM" 
-  "${ds_args}"
+  "${ds_args[*]}"
 )
 echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 echo "gpt_args: ${gpt_args[*]}"
