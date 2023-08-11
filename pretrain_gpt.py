@@ -34,9 +34,9 @@ import wandb
 from pathlib import Path
 import socket
 
+
 log = logging.getLogger(__name__)
 HERE = Path(os.path.abspath(__file__)).parent
-
 
 setup_torch(
     backend='deepspeed',
@@ -59,19 +59,18 @@ if is_first_rank():
     if tensorboard_dir is not None:
         log.info(f'Patching tensorboard from {tensorboard_dir}')
         wandb.tensorboard.patch(root_logdir=tensorboard_dir)
-    
     # wbrun_id = wandb.util.generate_id()
     current_time = time.time()
     local_time = time.localtime(current_time)
     # os.environ['WANDB_RUN_GROUP'] = f'experiment-{generate_id()}'
-    seq_len = os.environ.get('SEQ_LEN', 1)
-    seq_len = int(seq_len) // 1024
-    global_batch = os.environ.get('GLOBAL_BATCH', 1)
-    mp_size = os.environ.get('MPSIZE', 1)
-    pp_size = os.environ.get('PPSIZE', 1)
-    world_size = ptdist.get_world_size()
+    # seq_len = os.environ.get('SEQ_LEN', 1)
+    # seq_len = int(seq_len) // 1024
+    # global_batch = os.environ.get('GLOBAL_BATCH', 1)
+    # mp_size = os.environ.get('MPSIZE', 1)
+    # pp_size = os.environ.get('PPSIZE', 1)
+    # world_size = ptdist.get_world_size()
     WBRUN = wandb.init(
-        project='Megatron-DS1',
+        project='',
         sync_tensorboard=True,
         dir=tensorboard_dir,
         resume='allow',
@@ -80,11 +79,12 @@ if is_first_rank():
         # group=f'experiment-{generate_id()}'
         # group='long-seq-ANL0',
         # name=f'{seq_len}kseq-len-no-seq-parallel-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
-        name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
+        # name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
     )
     assert WBRUN is not None and WBRUN is wandb.run
     wandb.run.log_code(HERE.as_posix())  # type:ignore
-    # WBRUN.log_code(HERE.as_posix())
+    # wandb.run.config.update({'current_time': current_time})
+    wandb.run.config.update({'current_time': current_time})
     model_size = os.environ.get('MODEL_SIZE', None)
     if model_size is not None:
         WBRUN.config.update({'MODEL_SIZE': model_size})
@@ -101,6 +101,8 @@ if is_first_rank():
             WBRUN.config.update({'machine': 'Polaris'})
         elif hostname.startswith('x1'):
             WBRUN.config.update({'machine': 'Sunspot'})
+        elif hostname.startswith('nid'):
+            WBRUN.config.update({'machine': 'Perlmutter'})
         else:
             WBRUN.config.update({'machine': hostname})
 
@@ -111,7 +113,7 @@ def model_provider(pre_process=True, post_process=True):
     print_rank_0('building GPT model ...')
     see_memory_usage(f"Before Building Model", force=True)
     args = get_args()
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+    if wandb.run is not None:
         WBRUN.config.update(vars(args))
 
     with deepspeed.zero.Init(
@@ -130,12 +132,15 @@ def model_provider(pre_process=True, post_process=True):
             # We need to call model.set_batch_fn after deepspeed.initialize
             model._megatron_batch_fn = get_batch_pipe
 
-            # Predompute the attention mask and store it in args. This avoids having to
+            # Precompute the attention mask and store it in args. This avoids having to
             # pipeline it as an activation during training. The mask is constant, and thus
             # we can reuse it.
-            attention_mask = torch.tril(torch.ones(
-                (1, args.seq_length, args.seq_length), device=get_accelerator().current_device_name())).view(
-                    1, 1, args.seq_length, args.seq_length)
+            attention_mask = torch.tril(
+                torch.ones(
+                    (1, args.seq_length, args.seq_length),
+                    device=get_accelerator().current_device_name()
+                )
+            ).view(1, 1, args.seq_length, args.seq_length)
 
             # Convert attention mask to binary:
             attention_mask = (attention_mask < 0.5)
@@ -153,7 +158,8 @@ def model_provider(pre_process=True, post_process=True):
                 pre_process=pre_process,
                 post_process=post_process
             )
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+    # if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+    if wandb.run is not None:
         WBRUN.watch(
             model,
             log='all',
@@ -161,7 +167,6 @@ def model_provider(pre_process=True, post_process=True):
         )
 
     see_memory_usage(f"After Building Model", force=True)
-
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print_rank_0('\n ------------------------ ')
     print_rank_0(f'num of parameters {num_params}')
@@ -197,7 +202,8 @@ def get_batch(data_iterator):
         tokenizer.eod,
         args.reset_position_ids,
         args.reset_attention_mask,
-        args.eod_mask_loss)
+        args.eod_mask_loss
+    )
 
     # for sequence parallel
     world_rank = torch.distributed.get_rank()
@@ -473,5 +479,4 @@ def main():
 
 
 if __name__ == "__main__":
-    wandb.require(experiment='service')
     main()
