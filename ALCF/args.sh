@@ -30,7 +30,7 @@ function sourceFile() {
 
 USER=$(whoami)
 
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname "$DIR")
 
 echo "------------------------"
@@ -39,6 +39,7 @@ echo "SCRIPT_PATH=$SCRIPT_PATH"
 echo "------------------------"
 echo "SOURCE=$SOURCE"
 echo "DIR=$DIR"
+echo "PARENT: ${PARENT}"
 echo "------------------------"
 
 export MODEL_SIZE_KEY="${MODEL_SIZE_KEY:-GPT13B}"
@@ -232,7 +233,7 @@ else
 fi
 
 # Set to cpu for offloading to cpu for larger models
-OFFLOAD_DEVICE="cpu"
+OFFLOAD_DEVICE="${OFFLOAD_DEVICE:-cpu}"
 CPU_OPTIM=" --cpu-optimizer"
 
 # # Set to none and empty string for no cpu offloading
@@ -243,13 +244,27 @@ CPU_OPTIM=" --cpu-optimizer"
 # ┃ DeepSpeed Config ┃
 # ┗━━━━━━━━━━━━━━━━━━┛
 DS_CONFIG=${PARENT}/ds_config-gpt.json
+echo "!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!"
+echo "! DS_CONFIG: ${DS_CONFIG}"
+echo "!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!"
+# "optimizer": {
+#   "type": "Adam",
+#   "params": {
+#     "lr": 0.001,
+#     "betas": [0.8, 0.999],
+#     "eps": 1e-8,
+#     "weight_decay": 3e-7
+#   }
+# },
 
+# "zero_allow_untested_optimizer": false,
 if [[ $ZERO_STAGE == "3" ]] ; then
 cat <<EOT > "$DS_CONFIG"
 {
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
   "train_batch_size" : $GLOBAL_BATCH,
   "steps_per_print": 1,
+  "zero_force_ds_cpu_optimizer": false,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "zero_optimization": {
     "stage": 3,
@@ -269,15 +284,6 @@ cat <<EOT > "$DS_CONFIG"
       "pin_memory": true
     }
   },
-  "optimizer": {
-    "type": "Adam",
-    "params": {
-      "lr": 0.001,
-      "betas": [0.8, 0.999],
-      "eps": 1e-8,
-      "weight_decay": 3e-7
-    }
-  },
   "gradient_clipping": 1.0,
   "fp16": {
     "enabled": true,
@@ -287,7 +293,6 @@ cat <<EOT > "$DS_CONFIG"
     "min_loss_scale": 1
   },
   "wall_clock_breakdown": true,
-  "zero_allow_untested_optimizer": false,
   "aio": {
     "block_size": 1048576,
     "queue_depth": 16,
@@ -310,13 +315,16 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": true,
-    "group": "megatron-DS-rebase",
-    "project": "megatron-DS-rebase"
+    "enabled": true
   }
 }
 EOT
 else
+# "wandb": {
+#   "enabled": true,
+#   "group": "Megatron-DS-Benchmarking",
+#   "project": "Megatron-DS"
+# }
 # "train_batch_size" : $GLOBAL_BATCH,
 # 'offload_optimizer': 'cpu'
   # "train_batch_size" : $GLOBAL_BATCH,
@@ -341,7 +349,7 @@ cat <<EOT > "$DS_CONFIG"
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "steps_per_print": 1,
   "wall_clock_breakdown" : true,
-  "zero_force_ds_cpu_optimizer": true,
+  "zero_force_ds_cpu_optimizer": false,
   "zero_optimization": {
     "stage": $ZERO_STAGE,
     "allgather_partitions": true,
@@ -393,9 +401,7 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": true,
-    "group": "megatron-DS-rebase",
-    "project": "megatron-DS-rebase"
+    "enabled": true
   }
 }
 EOT
@@ -466,9 +472,7 @@ fi
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
-# --sequence-parallel \
 gpt_args=(
-  "--cpu-optimizer"
   "--seed ${RANDOM}"
   "--DDP-impl ${DDP_IMPL}"
   "--pipeline-model-parallel-size ${PPSIZE:-1}"
@@ -502,7 +506,7 @@ gpt_args=(
   "--tensorboard-dir ${TENSORBOARD_DIR}"
   "--log-timers-to-tensorboard"
   "--tensorboard-log-interval 1"
-  "${ARG_ENABLE_SEQUENCE_PARALLEL}"
+  # "${ARG_ENABLE_SEQUENCE_PARALLEL}"
 )
 # --tensorboard-log-interval 1" \
 # ${ARG_ENABLE_SEQUENCE_PARALLEL}
@@ -512,29 +516,29 @@ gpt_args=(
 # --recompute-method uniform \
 # --recompute-num-layers 1 \
 if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
-  gpt_args=(
+  gpt_args+=(
     "--checkpoint-activations"
     "--checkpoint-num-layers 1"
-    "${gpt_args[*]}"
+    # "${gpt_args[*]}"
   )
     # --distribute-checkpointed-activations \
 fi
 
 if [[ "$DDP_IMPL" != "FSDP" ]] ; then
-  gpt_args=(
-    "${gpt_args[*]}"
+  gpt_args+=(
+    # "${gpt_args[*]}"
     "--fp16"
   )
 else
-  gpt_args=(
-    "${gpt_args[*]}"
+  gpt_args+=(
+    # "${gpt_args[*]}"
     "--bf16"
   )
 fi
 
 if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
-  gpt_args=(
-    "${gpt_args[*]}"
+  gpt_args+=(
+    # "${gpt_args[*]}"
     "--use-flash-attn"
   )
   # gpt_args="\
@@ -546,9 +550,15 @@ if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
   # gpt_args="\
   #   --sequence-parallel \
   #   ${gpt_args}"
-  gpt_args=(
-    "${gpt_args[*]}"
+  gpt_args+=(
+    # "${gpt_args[*]}"
     "--sequence-parallel"
+  )
+fi
+
+if [[ "${SP_TYPE}" == "ds" ]]; then
+  gpt_args+=(
+    "--cpu-optimizer"
   )
 fi
 
