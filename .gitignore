@@ -1,3 +1,7 @@
+wandb/*
+venvs/*
+pbslogs/*
+*ignore*
 *.done
 *.e5*
 *.o5*
