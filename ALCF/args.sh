@@ -33,6 +33,8 @@ USER=$(whoami)
 # DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname "$DIR")
 
+HERE=$(python3 -c 'import os; print(os.getcwd())')
+
 echo "------------------------"
 echo "SCRIPT_DIR=$SCRIPT_DIR"
 echo "SCRIPT_PATH=$SCRIPT_PATH"
@@ -40,12 +42,32 @@ echo "------------------------"
 echo "SOURCE=$SOURCE"
 echo "DIR=$DIR"
 echo "PARENT: ${PARENT}"
+echo "HERE: ${HERE}"
 echo "------------------------"
 
+if [[ $(hostname) == theta* ]]; then
+  echo "Setting up ThetaGPU from $(hostname)"
+  HOSTFILE="${COBALT_NODEFILE}"
+elif [[ $(hostname) == x* ]]; then
+  echo "Setting up Polaris from $(hostname)"
+  HOSTFILE="${PBS_NODEFILE}"
+else
+  echo "Unexpected hostname $(hostname)"
+fi
+
+NHOSTS=$(wc -l < "${HOSTFILE}")
+NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+WORLD_SIZE="${NGPUS}"
+PARALLEL_SIZE="${WORLD_SIZE}"
+# # NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
+echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
+
+
 export MODEL_SIZE_KEY="${MODEL_SIZE_KEY:-GPT13B}"
-echo "+=========================+"
-echo "| Using ${MODEL_SIZE_KEY}"
-echo "+=========================+"
+echo "==========================+"
+echo "Using ${MODEL_SIZE_KEY}"
+echo "==========================+"
 
 sourceFile "${DIR}/model.sh"
 
@@ -64,14 +86,14 @@ export DDP_IMPL="local"   # FSDP | local | torch
 export USE_FLASH_ATTN=${USE_FLASH_ATTN:-0}  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 export SEQ_LEN=${SEQ_LEN:-1024}
-# export MPSIZE=${MPSIZE:-1}
 export PPSIZE=${PPSIZE:-1}
-export SPSIZE=${SPSIZE:-1}
+# export MPSIZE=${MPSIZE:-1}
+# export SPSIZE=${SPSIZE:-1}
 export MICRO_BATCH=${MICRO_BATCH:-1}
-export ZERO_STAGE=${ZERO_STAGE:-1}  # 0 | 1 | 2 | 3
-export NHOSTS="$NHOSTS"
+# export ZERO_STAGE=${ZERO_STAGE:-1}  # 0 | 1 | 2 | 3
 export GRADIENT_ACCUMULATION_STEPS=${GAS:-1}
-export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
+# export NHOSTS="$NHOSTS"
+# export USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL:-0}  # 1 | 0
 
 # NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
 # # NGPU_PER_HOST=8
@@ -82,67 +104,43 @@ export MODEL_TYPE=${MODEL_TYPE:-"gpt"} # set bert or gpt
 export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
 
 if [[ ${SP_TYPE} == "ds" ]]; then
-  echo "Using DS sequence parallel"
-  export SPSIZE=${PARALLEL_SIZE:-1}
+  export SPSIZE="${WORLD_SIZE}"
   export MPSIZE=1
   export ZERO_STAGE=3
   export USE_SEQUENCE_PARALLEL=0
+  # echo "Using DS sequence parallel"
 elif [[ ${SP_TYPE} == "megatron" ]]; then
-    echo "Megatron's sequence parallel"
-      # if [ ${SEQ_LEN} -eq 8192 ]; then
-      #     PARALLEL_SIZE=8
-      # fi
-      # if [ ${SEQ_LEN} -eq 16384 ]; then
-      #     PARALLEL_SIZE=8
-      # fi
-      # if [ ${SEQ_LEN} -eq 32768 ]; then
-      #     PARALLEL_SIZE=16
-      # fi
-      # if [ ${SEQ_LEN} -eq 65536 ]; then
-      #     PARALLEL_SIZE=16
-      # fi
-    export SPSIZE=1
-    export MPSIZE="${WORLD_SIZE}"
-    export ZERO_STAGE=0
-    export USE_SEQUENCE_PARALLEL=1
-  else 
-    echo "Unexpected SP_TYPE: ${SP_TYPE}"
-    exit 1
-  fi
-
-echo "+..................................................+"
-echo "| SP_SIZE: ${SPSIZE}"
-echo "| MPSIZE: ${MPSIZE}"
-echo "| ZERO_STAGE: ${ZERO_STAGE}"
-echo "| USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}"
-echo "+..................................................+"
-# if [ ${SEQ_LEN} -eq 8192 ]; then
-#     MICRO_BATCH=4
-# fi
-
-# if [ ${SEQ_LEN} -eq 16384 ]; then
-#     MICRO_BATCH=2
-# fi
-
-# if [ ${SEQ_LEN} -eq 32768 ]; then
-#     MICRO_BATCH=1
-# fi
-#
-if [[ $(hostname) == theta* ]]; then
-  echo "Setting up ThetaGPU from $(hostname)"
-  HOSTFILE="${COBALT_NODEFILE}"
-elif [[ $(hostname) == x* ]]; then
-  echo "Setting up Polaris from $(hostname)"
-  HOSTFILE="${PBS_NODEFILE}"
+  # echo "Megatron's sequence parallel"
+    # if [ ${SEQ_LEN} -eq 8192 ]; then
+    #     PARALLEL_SIZE=8
+    # fi
+    # if [ ${SEQ_LEN} -eq 16384 ]; then
+    #     PARALLEL_SIZE=8
+    # fi
+    # if [ ${SEQ_LEN} -eq 32768 ]; then
+    #     PARALLEL_SIZE=16
+    # fi
+    # if [ ${SEQ_LEN} -eq 65536 ]; then
+    #     PARALLEL_SIZE=16
+    # fi
+  export SPSIZE=1
+  export MPSIZE="${WORLD_SIZE}"
+  export ZERO_STAGE="${ZERO_STAGE:-0}"
+  export USE_SEQUENCE_PARALLEL=1
 else
-  echo "Unexpected hostname $(hostname)"
+  echo "Unexpected SP_TYPE: ${SP_TYPE}"
+  exit 1
 fi
 
-NHOSTS=$(wc -l < "${HOSTFILE}")
-NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
-# # NGPUS="$((${NHOSTS}*${NGPU_PER_HOST}))"
-echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
+echo "+..................................................+"
+echo "| USING: ${SP_TYPE}" 
+echo "| SPSIZE: ${SPSIZE}"
+echo "| PPSIZE: ${SPSIZE}"
+echo "| MPSIZE: ${MPSIZE}"
+echo "| ZERO_STAGE: ${ZERO_STAGE}"
+echo "| WORLD_SIZE: ${WORLD_SIZE}"
+echo "| USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}"
+echo "+..................................................+"
 
 # GLOBAL_BATCH=1
 # GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
@@ -157,7 +155,6 @@ export GLOBAL_BATCH="$GLOBAL_BATCH"
 echo "--------------------------------"
 echo "GLOBAL_BATCH=${GLOBAL_BATCH}"
 echo "--------------------------------"
-
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -258,12 +255,13 @@ echo "!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!"
 # },
 
 # "zero_allow_untested_optimizer": false,
+# "train_batch_size" : $GLOBAL_BATCH,
 if [[ $ZERO_STAGE == "3" ]] ; then
 cat <<EOT > "$DS_CONFIG"
 {
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
-  "train_batch_size" : $GLOBAL_BATCH,
   "steps_per_print": 1,
+  "wall_clock_breakdown" : true,
   "zero_force_ds_cpu_optimizer": false,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "zero_optimization": {
@@ -292,7 +290,6 @@ cat <<EOT > "$DS_CONFIG"
     "hysteresis": 2,
     "min_loss_scale": 1
   },
-  "wall_clock_breakdown": true,
   "aio": {
     "block_size": 1048576,
     "queue_depth": 16,
@@ -315,34 +312,12 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": true
+    "enabled": true,
+    "project": "Megatron-DS-Benchmarking"
   }
 }
 EOT
 else
-# "wandb": {
-#   "enabled": true,
-#   "group": "Megatron-DS-Benchmarking",
-#   "project": "Megatron-DS"
-# }
-# "train_batch_size" : $GLOBAL_BATCH,
-# 'offload_optimizer': 'cpu'
-  # "train_batch_size" : $GLOBAL_BATCH,
-# "offload_optimizer": {
-#   "device": "cpu",
-#   "nvme_path": "/raid/scratch/"
-# }
-#
-# "optimizer": {
-#    "type": "AdamW",
-#    "params": {
-#      "lr": 0.001,
-#      "betas": [0.8, 0.999],
-#      "eps": 1e-8,
-#      "weight_decay": 3e-7
-#    }
-# },
-
 cat <<EOT > "$DS_CONFIG"
 {
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
@@ -401,12 +376,30 @@ cat <<EOT > "$DS_CONFIG"
     "debug": false
   },
   "wandb": {
-    "enabled": true
+    "enabled": true,
+    "project": "Megatron-DS-Benchmarking"
   }
 }
 EOT
 fi
 
+# "train_batch_size" : $GLOBAL_BATCH,
+# 'offload_optimizer': 'cpu'
+  # "train_batch_size" : $GLOBAL_BATCH,
+# "offload_optimizer": {
+#   "device": "cpu",
+#   "nvme_path": "/raid/scratch/"
+# }
+#
+# "optimizer": {
+#    "type": "AdamW",
+#    "params": {
+#      "lr": 0.001,
+#      "betas": [0.8, 0.999],
+#      "eps": 1e-8,
+#      "weight_decay": 3e-7
+#    }
+# },
 # "optimizer": {
 #   "type": "OneBitAdam",
 #   "params": {
@@ -475,9 +468,9 @@ fi
 gpt_args=(
   "--seed ${RANDOM}"
   "--DDP-impl ${DDP_IMPL}"
-  "--pipeline-model-parallel-size ${PPSIZE:-1}"
-  "--tensor-model-parallel-size ${MPSIZE:-1}"
-  "--sequence-parallel-size ${SPSIZE:-1}"
+  "--pipeline-model-parallel-size ${PPSIZE}"
+  "--tensor-model-parallel-size ${MPSIZE}"
+  "--sequence-parallel-size ${SPSIZE}"
   "--num-layers ${NLAYERS}"
   "--hidden-size ${HIDDEN}"
   "--num-attention-heads ${ATEN_HEADS}"
