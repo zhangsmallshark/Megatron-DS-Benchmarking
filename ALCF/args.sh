@@ -1,21 +1,28 @@
 #!/bin/bash -login
 
-SCRIPT_PATH="${BASH_SOURCE[0]}"
-while [ -L "$SCRIPT_PATH" ]; do
-  SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
-  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-  [[ ${SCRIPT_PATH} != /* ]] && SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_PATH}"
-done
-SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
-SCRIPT_DIR="$(cd -P "$(dirname -- "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
-
-SOURCE=${BASH_SOURCE[0]}
-while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
-  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-  SOURCE=$(readlink "$SOURCE")
-  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-done
-DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+# SCRIPT_PATH="${BASH_SOURCE[0]}"
+# while [ -L "$SCRIPT_PATH" ]; do
+#   SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
+#   SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+#   [[ ${SCRIPT_PATH} != /* ]] && SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_PATH}"
+# done
+# SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
+# SCRIPT_DIR="$(cd -P "$(dirname -- "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
+#
+# SOURCE=${BASH_SOURCE[0]}
+# while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+#   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+#   SOURCE=$(readlink "$SOURCE")
+#   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+# done
+# DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+#
+ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+PARENT=$(dirname "${ALCF_DIR}")
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
+echo "ALCF_DIR: ${ALCF_DIR}"
+echo "PARENT: ${PARENT}"
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
 
 function sourceFile() {
   FILE="$1"
@@ -30,20 +37,20 @@ function sourceFile() {
 
 USER=$(whoami)
 
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname "$DIR")
+# # DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# PARENT=$(dirname "$DIR")
+#
+# HERE=$(python3 -c 'import os; print(os.getcwd())')
 
-HERE=$(python3 -c 'import os; print(os.getcwd())')
-
-echo "------------------------"
-echo "SCRIPT_DIR=$SCRIPT_DIR"
-echo "SCRIPT_PATH=$SCRIPT_PATH"
-echo "------------------------"
-echo "SOURCE=$SOURCE"
-echo "DIR=$DIR"
-echo "PARENT: ${PARENT}"
-echo "HERE: ${HERE}"
-echo "------------------------"
+# echo "------------------------"
+# echo "SCRIPT_DIR=$SCRIPT_DIR"
+# echo "SCRIPT_PATH=$SCRIPT_PATH"
+# echo "------------------------"
+# echo "SOURCE=$SOURCE"
+# echo "DIR=$DIR"
+# echo "PARENT: ${PARENT}"
+# echo "HERE: ${HERE}"
+# echo "------------------------"
 
 if [[ $(hostname) == theta* ]]; then
   echo "Setting up ThetaGPU from $(hostname)"
@@ -69,7 +76,7 @@ echo "==========================+"
 echo "Using ${MODEL_SIZE_KEY}"
 echo "==========================+"
 
-sourceFile "${DIR}/model.sh"
+sourceFile "${ALCF_DIR}/model.sh"
 
 MODEL_TYPE=${MODEL_TYPE:-gpt}
 
@@ -103,34 +110,36 @@ export GRADIENT_ACCUMULATION_STEPS=${GAS:-1}
 export MODEL_TYPE=${MODEL_TYPE:-"gpt"} # set bert or gpt
 export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
 
+
+# Deal with Sequence Parallel implementation -----------------------------
+# ------------------------------------------------------------------------
 if [[ ${SP_TYPE} == "ds" ]]; then
   export SPSIZE="${WORLD_SIZE}"
   export MPSIZE=1
-  export ZERO_STAGE=3
   export USE_SEQUENCE_PARALLEL=0
-  # echo "Using DS sequence parallel"
+  if [ -z "${ZERO_STAGE}" ]; then
+    echo "ZERO_STAGE not set, setting to 3 for ${SP_TYPE}"
+    ZERO_STAGE=3
+  else
+    echo "Caught ZERO_STAGE=${ZERO_STAGE} with ${SP_TYPE}"
+  fi
+  export ZERO_STAGE="${ZERO_STAGE}"
 elif [[ ${SP_TYPE} == "megatron" ]]; then
-  # echo "Megatron's sequence parallel"
-    # if [ ${SEQ_LEN} -eq 8192 ]; then
-    #     PARALLEL_SIZE=8
-    # fi
-    # if [ ${SEQ_LEN} -eq 16384 ]; then
-    #     PARALLEL_SIZE=8
-    # fi
-    # if [ ${SEQ_LEN} -eq 32768 ]; then
-    #     PARALLEL_SIZE=16
-    # fi
-    # if [ ${SEQ_LEN} -eq 65536 ]; then
-    #     PARALLEL_SIZE=16
-    # fi
   export SPSIZE=1
   export MPSIZE="${WORLD_SIZE}"
-  export ZERO_STAGE="${ZERO_STAGE:-0}"
   export USE_SEQUENCE_PARALLEL=1
+  if [ -z "${ZERO_STAGE}" ]; then
+    echo "ZERO_STAGE not set, setting to 0 for ${SP_TYPE}"
+    ZERO_STAGE=0
+  else 
+    echo "Caught ZERO_STAGE=${ZERO_STAGE} with ${SP_TYPE}"
+  fi
+  export ZERO_STAGE="${ZERO_STAGE}"
 else
   echo "Unexpected SP_TYPE: ${SP_TYPE}"
   exit 1
 fi
+# ------------------------------------------------------------------------
 
 echo "+..................................................+"
 echo "| USING: ${SP_TYPE}" 
