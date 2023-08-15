@@ -23,6 +23,7 @@ _GLOBAL_SIGNAL_HANDLER = None
 def get_args():
     """Return arguments."""
     _ensure_var_is_initialized(_GLOBAL_ARGS, 'args')
+    assert _GLOBAL_ARGS is not None
     return _GLOBAL_ARGS
 
 
