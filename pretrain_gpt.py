@@ -70,7 +70,7 @@ if is_first_rank():
     # pp_size = os.environ.get('PPSIZE', 1)
     # world_size = ptdist.get_world_size()
     WBRUN = wandb.init(
-        project='',
+        project='Megatron-DS-Benchmarking',
         sync_tensorboard=True,
         dir=tensorboard_dir,
         resume='allow',
@@ -84,7 +84,7 @@ if is_first_rank():
     assert WBRUN is not None and WBRUN is wandb.run
     wandb.run.log_code(HERE.as_posix())  # type:ignore
     # wandb.run.config.update({'current_time': current_time})
-    wandb.run.config.update({'current_time': current_time})
+    WBRUN.config.update({'current_time': current_time})
     model_size = os.environ.get('MODEL_SIZE', None)
     if model_size is not None:
         WBRUN.config.update({'MODEL_SIZE': model_size})
@@ -114,7 +114,7 @@ def model_provider(pre_process=True, post_process=True):
     see_memory_usage(f"Before Building Model", force=True)
     args = get_args()
     if wandb.run is not None:
-        WBRUN.config.update(vars(args))
+        wandb.run.config.update(vars(args))
 
     with deepspeed.zero.Init(
             data_parallel_group=mpu.get_data_parallel_group(),
@@ -160,7 +160,7 @@ def model_provider(pre_process=True, post_process=True):
             )
     # if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
     if wandb.run is not None:
-        WBRUN.watch(
+        wandb.run.watch(
             model,
             log='all',
             log_graph=True,
@@ -168,6 +168,8 @@ def model_provider(pre_process=True, post_process=True):
 
     see_memory_usage(f"After Building Model", force=True)
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if wandb.run is not None:
+        wandb.run.config.update({'num_params': num_params})
     print_rank_0('\n ------------------------ ')
     print_rank_0(f'num of parameters {num_params}')
     print_rank_0('------------------------\n ')
