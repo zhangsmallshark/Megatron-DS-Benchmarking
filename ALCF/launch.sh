@@ -1,13 +1,26 @@
 #!/bin/bash --login
 
 HOST=$(hostname)
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-SOURCE=${BASH_SOURCE[0]}
-while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
-  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-  SOURCE=$(readlink "$SOURCE")
-  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-done
+
+# # DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# SOURCE=${BASH_SOURCE[0]}
+# while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+#   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+#   SOURCE=$(readlink "$SOURCE")
+#   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+# done
+
+# HERE=$(python3 -c 'import os; print(os.getcwd())')
+# ALCF_DIR="${HERE}/ALCF"
+#
+ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+PARENT=$(dirname "${ALCF_DIR}")
+
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
+echo "ALCF_DIR: ${ALCF_DIR}"
+echo "PARENT: ${PARENT}"
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
+
 
 function sourceFile() {
   FILE="$1"
@@ -20,15 +33,15 @@ function sourceFile() {
   fi
 }
 
-DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-PARENT=$(dirname "${DIR}")
+# DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+# PARENT=$(dirname "${DIR}")
 
 MASTER_ADDR=$(uname -n)
 MASTER_PORT=20010
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 MPI_WRAPPER="${SCRIPT_DIR}/mpi_wrapper"
 
-sourceFile "${DIR}/args.sh"
+sourceFile "${ALCF_DIR}/args.sh"
 
 MAIN="${PARENT}/pretrain_${MODEL_TYPE}.py"
 
@@ -70,15 +83,13 @@ singleGPU() {
 # ┃ Use all available GPUs a single nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 fullNode() {
-
-echo "fullNode started"
-echo "MPI_COMMAND ${MPI_COMMAND}"
-echo "MPI_DEFAULTS ${MPI_DEFAULTS}"
-echo "NGPUS ${NGPUS}"
-echo "hostfile ${DIR}/hostfile"
-echo "MAIN ${MAIN}"
-echo "gpt_args ${gpt_args}"
-
+  echo "fullNode started"
+  echo "MPI_COMMAND ${MPI_COMMAND}"
+  echo "MPI_DEFAULTS ${MPI_DEFAULTS}"
+  echo "NGPUS ${NGPUS}"
+  echo "hostfile ${DIR}/hostfile"
+  echo "MAIN ${MAIN}"
+  echo "gpt_args ${gpt_args}"
   NHOSTS=$(wc -l < "${HOSTFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
   # NGPU_PER_HOST=1

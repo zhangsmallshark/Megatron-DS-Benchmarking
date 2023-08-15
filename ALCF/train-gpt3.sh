@@ -2,14 +2,22 @@
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 
-SOURCE=${BASH_SOURCE[0]}
-while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
-  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-  SOURCE=$(readlink "$SOURCE")
-  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-done
-DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+# HERE=$(python3 -c 'import os; print(os.getcwd())')
+# ALCF_DIR="${HERE}/ALCF"
 
+ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
+echo "ALCF_DIR: ${ALCF_DIR}"
+echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
+
+# SOURCE=${BASH_SOURCE[0]}
+# while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+#   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+#   SOURCE=$(readlink "$SOURCE")
+#   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+# done
+# DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+#
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ Make sure we're not already running; if so, exit here ┃
@@ -35,11 +43,11 @@ function sourceFile() {
 #┃ source ./launch.sh                       ┃
 #┃ which then sources ./{args.sh,setup.sh}  ┃
 #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-LAUNCH_FILE="${DIR}/launch.sh"
+LAUNCH_FILE="${ALCF_DIR}/launch.sh"
 
-sourceFile "${DIR}/setup.sh"
-sourceFile "${DIR}/model.sh"
-sourceFile "${DIR}/args.sh"
+sourceFile "${ALCF_DIR}/setup.sh"
+sourceFile "${ALCF_DIR}/model.sh"
+sourceFile "${ALCF_DIR}/args.sh"
 sourceFile "${LAUNCH_FILE}"
 
 setup
