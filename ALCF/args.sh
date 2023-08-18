@@ -117,7 +117,7 @@ if [[ ${SP_TYPE} == "ds" ]]; then
   # NOTE: --------------------------------------------------------------------------
   # SP_TYPE="ds" has NO effect, essentially running with no Seq. ||
   # --------------------------------------------------------------------------------
-  export SPSIZE=1
+  export SPSIZE="${WORLD_SIZE}"
   export MPSIZE=1
   export USE_SEQUENCE_PARALLEL=0
   if [ -z "${ZERO_STAGE}" ]; then
