@@ -1033,32 +1033,61 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     timers_to_log = []
 
     def add_to_logging(name):
-        if timers is not None and name in timers.timers:
+        if timers is not None:  #  and name in timers.timers:
             timers_to_log.append(name)
 
-    add_to_logging('forward-compute')
-    add_to_logging('forward-recv')
-    add_to_logging('forward-send')
-    add_to_logging('forward-backward-send-forward-backward-recv')
-    add_to_logging('backward-compute')
-    add_to_logging('backward-recv')
-    add_to_logging('backward-send')
-    add_to_logging('backward-send-forward-recv')
-    add_to_logging('backward-send-backward-recv')
-    add_to_logging('backward-params-all-reduce')
-    add_to_logging('backward-embedding-all-reduce')
-    add_to_logging('optimizer-copy-to-main-grad')
-    add_to_logging('optimizer-unscale-and-check-inf')
-    add_to_logging('optimizer-clip-main-grad')
-    add_to_logging('optimizer-copy-main-to-model-params')
-    add_to_logging('optimizer')
-    add_to_logging('batch-generator')
-    add_to_logging('save-checkpoint')
+    add_to_logging('timers/forward-compute')
+    add_to_logging('timers/forward-recv')
+    add_to_logging('timers/forward-send')
+    add_to_logging('timers/forward-backward-send-forward-backward-recv')
+    add_to_logging('timers/backward-compute')
+    add_to_logging('timers/backward-recv')
+    add_to_logging('timers/backward-send')
+    add_to_logging('timers/backward-send-forward-recv')
+    add_to_logging('timers/backward-send-backward-recv')
+    add_to_logging('timers/backward-params-all-reduce')
+    add_to_logging('timers/backward-embedding-all-reduce')
+    add_to_logging('timers/optimizer-copy-to-main-grad')
+    add_to_logging('timers/optimizer-unscale-and-check-inf')
+    add_to_logging('timers/optimizer-clip-main-grad')
+    add_to_logging('timers/optimizer-copy-main-to-model-params')
+    add_to_logging('timers/optimizer')
+    add_to_logging('timers/batch-generator')
+    add_to_logging('timers/save-checkpoint')
     # Calculate batch size.
     batch_size = args.micro_batch_size * args.data_parallel_size * \
         get_num_microbatches()
     total_iterations = total_loss_dict[advanced_iters_key] + \
                        total_loss_dict[skipped_iters_key]
+
+    elapsed_time = timers('interval-time').elapsed()
+    elapsed_time_per_iteration = elapsed_time / total_iterations
+    seq_len = args.seq_length
+    if hasattr(args, 'actual_seq_length'):
+        seq_len = args.actual_seq_length
+    hidden_size = args.hidden_size
+    num_layers = args.num_layers
+    vocab_size = args.padded_vocab_size
+
+    samples_per_sec, tflops, approx_parameters_in_billions = throughput_calculator(
+        model,
+        args,
+        elapsed_time,
+        total_iterations
+    )
+    #
+    # samples_per_sec, tflops, approx_parameters_in_billions = throughput_calculator(
+    #     model,
+    #     args,
+    #     elapsed_time,
+    #     total_iterations
+    # )
+    # Compute throughput.
+    samples_per_sec_per_replica = samples_per_sec / args.data_parallel_size
+    tokens_per_sec = samples_per_sec * seq_len
+    tokens_per_sec_per_replica = tokens_per_sec / args.data_parallel_size
+    sample_consumption_rate = args.consumed_train_samples / elapsed_time
+    token_consumption_rate = args.consumed_train_tokens / elapsed_time
 
     # Tensorboard values.
     if writer and (iteration % args.tensorboard_log_interval == 0) and \
@@ -1077,30 +1106,19 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
 
         tdata = {f'train/{k}': v for k, v in tdata.items()}
         if wbrun is not None and wbrun is wandb.run:
-            wbrun.log(tdata)
-
-        elapsed_time = timers('interval-time').elapsed()
-        elapsed_time_per_iteration = elapsed_time / total_iterations
-        seq_len = args.seq_length
-        if hasattr(args, 'actual_seq_length'):
-            seq_len = args.actual_seq_length
-        hidden_size = args.hidden_size
-        num_layers = args.num_layers
-        vocab_size = args.padded_vocab_size
-
-        samples_per_sec, tflops, approx_parameters_in_billions = throughput_calculator(model, args, elapsed_time, total_iterations)
-
-        # Compute throughput.
-        samples_per_sec_per_replica = samples_per_sec / args.data_parallel_size
-        tokens_per_sec = samples_per_sec * seq_len
-        tokens_per_sec_per_replica = tokens_per_sec / args.data_parallel_size
-
+            wbrun.log(tdata, commit=False)
         if wbrun is not None and wbrun is wandb.run:
             tput = {
                 'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
                 'throughput/samples_per_sec': samples_per_sec,
+                'throughput/samples_per_sec_per_replica': samples_per_sec_per_replica,
+                'throughput/tokens_per_sec': tokens_per_sec,
+                'throughput/tokens_per_sec_per_replica': tokens_per_sec_per_replica,
                 'throughput/tflops': tflops,
                 'throughput/approx_params_in_billions': approx_parameters_in_billions,
+                'throughput/sample_consumption_rate': sample_consumption_rate,
+                'throughput/token_consumption_rate': token_consumption_rate,
+                'throughput/elapsed_ms_per_iteration': elapsed_time_per_iteration,
             }
             wbrun.log(tput)
 
@@ -1270,22 +1288,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         hidden_size = args.hidden_size
         num_layers = args.num_layers
         vocab_size = args.padded_vocab_size
-
-        samples_per_sec, tflops, approx_parameters_in_billions = throughput_calculator(model, args, elapsed_time, total_iterations)
-
-        # Compute throughput.
-        samples_per_sec_per_replica = samples_per_sec / args.data_parallel_size
-        tokens_per_sec = samples_per_sec * seq_len
-        tokens_per_sec_per_replica = tokens_per_sec / args.data_parallel_size
-
-        if wbrun is not None and wbrun is wandb.run:
-            tput = {
-                'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
-                'throughput/samples_per_sec': samples_per_sec,
-                'throughput/tflops': tflops,
-                'throughput/approx_params_in_billions': approx_parameters_in_billions,
-            }
-            wbrun.log(tput)
 
         # only the last rank process has a non-None _GLOBAL_TENSORBOARD_WRITER
         if writer and is_rank_0():
