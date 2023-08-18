@@ -20,6 +20,9 @@ from megatron.model.utils import attention_mask_func, openai_gelu, erf_gelu
 import deepspeed
 from deepspeed.moe.layer import MoE
 from deepspeed.accelerator import get_accelerator
+import logging
+
+log = logging.getLogger(__name__)
 
 # from deepspeed.sequence.layer import DistributedAttention
 
@@ -28,15 +31,26 @@ DistributedAttention = None
 try:
     from einops import rearrange
 except ImportError:
+    log.info(f"Unable to import `rearrange` from `einops`")
     rearrange = None
 
 try:
-    from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-    from flash_attn.flash_attn_triton import flash_attn_func
+    from flash_attn.flash_attn_interface import flash_attn_varlen_func as flash_attn_unpadded_func
+except (ImportError, ModuleNotFoundError):
+    try:
+        from flash_attn.flash_attn_interface import flash_attn_unpadded_func
+    except (ImportError, ModuleNotFoundError):
+        log.info(f"Unable to import `flash_attn_varlen_func` from `flash_attn`")
+        flash_attn_unpadded_func = None
+    finally:
+        flash_attn_unpadded_func = None
 
-except ImportError:
-    flash_attn_unpadded_func = None
+try:
+    from flash_attn.flash_attn_triton import flash_attn_func
+except (ImportError, ModuleNotFoundError):
+    log.info(f"Unable to import `flash_attn_triton.flash_attn_func` from `flash_attn`")
     flash_attn_func = None
+
 
 """ We use the following notation throughout this file:
      h: hidden size
