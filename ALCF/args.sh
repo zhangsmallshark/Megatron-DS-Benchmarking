@@ -92,7 +92,7 @@ MODEL_TYPE=${MODEL_TYPE:-gpt}
 export DDP_IMPL="local"   # FSDP | local | torch
 export USE_FLASH_ATTN=${USE_FLASH_ATTN:-0}  # 1 | 0
 export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
-export SEQ_LEN=${SEQ_LEN:-1024}
+export SEQ_LEN=${SEQ_LEN:-2048}
 export PPSIZE=${PPSIZE:-1}
 # export MPSIZE=${MPSIZE:-1}
 # export SPSIZE=${SPSIZE:-1}
@@ -111,10 +111,13 @@ export MODEL_TYPE=${MODEL_TYPE:-"gpt"} # set bert or gpt
 export SP_TYPE=${SP_TYPE:-"megatron"} # set ds or megatron
 
 
-# Deal with Sequence Parallel implementation -----------------------------
-# ------------------------------------------------------------------------
+# Deal with Sequence Parallel implementation ---------------------------------------
+# ----------------------------------------------------------------------------------
 if [[ ${SP_TYPE} == "ds" ]]; then
-  export SPSIZE="${WORLD_SIZE}"
+  # NOTE: --------------------------------------------------------------------------
+  # SP_TYPE="ds" has NO effect, essentially running with no Seq. ||
+  # --------------------------------------------------------------------------------
+  export SPSIZE=1
   export MPSIZE=1
   export USE_SEQUENCE_PARALLEL=0
   if [ -z "${ZERO_STAGE}" ]; then
@@ -125,16 +128,45 @@ if [[ ${SP_TYPE} == "ds" ]]; then
   fi
   export ZERO_STAGE="${ZERO_STAGE}"
 elif [[ ${SP_TYPE} == "megatron" ]]; then
-  export SPSIZE=1
-  export MPSIZE="${WORLD_SIZE}"
-  export USE_SEQUENCE_PARALLEL=1
-  if [ -z "${ZERO_STAGE}" ]; then
-    echo "ZERO_STAGE not set, setting to 0 for ${SP_TYPE}"
-    ZERO_STAGE=0
-  else 
-    echo "Caught ZERO_STAGE=${ZERO_STAGE} with ${SP_TYPE}"
-  fi
+  # NOTE: --------------------------------------------------------------------------
+  # SP_TYPE="megatron" will use Megatron's Seq. || implementation with ZERO_STAGE=0
+  # --------------------------------------------------------------------------------
+  # export SPSIZE=1
+  # export MPSIZE="${WORLD_SIZE}"
+  [ "$SPSIZE" ] && echo "Caught SPSIZE: ${SPSIZE} from env" || SPSIZE=1
+  [ "$MPSIZE" ] && echo "Caught MPSIZE: ${MPSIZE} from env" || MPSIZE="${WORLD_SIZE}"
+  [ "$ZERO_STAGE" ] && echo "Caught ${ZERO_STAGE} from env" || ZERO_STAGE=0
+  # [ "$USE_SEQUENCE_PARALLEL" = 0 ] && export USE_SEQUENCE_PARALLEL=0 || export USE_SEQUENCE_PARALLEL=1
+  # if [[ "$SPSIZE" == 0 ]]; then
+  #   echo "Caught SPSIZE=$SPSIZE from env!!"
+  #   USE_SEQUENCE_PARALLEL=0
+  # else
+  #   USE_SEQUENCE_PARALLEL=1
+  # fi
+  # if [[ "$USE_SEQUENCE_PARALLEL" ]]; then
+  #   echo "Caught USE_SEQUENCE_PARALLEL=${USE_SEQUENCE_PARALLEL} from env!!"
+  # [ "${SPSIZE}" != 0 ] && USE_SEQUENCE_PARALLEL=1 || USE_SEQUENCE_PARALLEL=0
+  # [ "$USE_SEQUENCE_PARALLEL" = 0 ] && echo "Not using sequence parallelism" || USE_SEQUENCE_PARALLEL=1
+  export SPSIZE="${SPSIZE}"
+  export MPSIZE="${MPSIZE}"
   export ZERO_STAGE="${ZERO_STAGE}"
+  export USE_SEQUENCE_PARALLEL="${USE_SEQUENCE_PARALLEL:-1}"
+  echo "${SP_TYPE} sequence parallelism with, SPSIZE: ${SPSIZE} USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL} !!"
+  # if [[ "${SPSIZE}" == 0 ]]; then
+  # [ "$SPSIZE" ] && USE_SEQUENCE_PARALLEL=1 || USE_SEQUENCE_PARALLEL=0
+  #   echo "Caught SPSIZE=${SPSIZE} from env, with ${SP_TYPE} sequence parallelism"
+  #   export SPSIZE="${SPSIZE}"
+  #   export USE_SEQUENCE_PARALLEL=0
+  # else
+  #   export SPSIZE=1
+  #   export USE_SEQUENCE_PARALLEL=1
+  # fi
+  # if [ -z "${ZERO_STAGE}" ]; then
+  #   echo "ZERO_STAGE not set, setting to 0 for ${SP_TYPE}"
+  #   ZERO_STAGE=0
+  # else 
+  #   echo "Caught ZERO_STAGE=${ZERO_STAGE} with ${SP_TYPE}"
+  # fi
 else
   echo "Unexpected SP_TYPE: ${SP_TYPE}"
   exit 1
@@ -342,20 +374,7 @@ cat <<EOT > "$DS_CONFIG"
     "overlap_comm": true,
     "contiguous_gradients": true,
     "offload_optimizer": {
-      "device": "$OFFLOAD_DEVICE",
-      "buffer_count": 4,
-      "pipeline_read": false,
-      "pipeline_write": false,
-      "pin_memory": true
-    }
-  },
-  "optimizer": {
-    "type": "Adam",
-    "params": {
-      "lr": 0.001,
-      "betas": [0.8, 0.999],
-      "eps": 1e-8,
-      "weight_decay": 3e-7
+      "device": "$OFFLOAD_DEVICE"
     }
   },
   "scheduler": {
@@ -391,7 +410,23 @@ cat <<EOT > "$DS_CONFIG"
 }
 EOT
 fi
-
+# "optimizer": {
+#   "type": "Adam",
+#   "params": {
+#     "lr": 0.001,
+#     "betas": [0.8, 0.999],
+#     "eps": 1e-8,
+#     "weight_decay": 3e-7
+#   }
+# },
+#
+# "offload_optimizer": {
+#   "device": "$OFFLOAD_DEVICE",
+#   "buffer_count": 4,
+#   "pipeline_read": false,
+#   "pipeline_write": false,
+#   "pin_memory": true
+# }
 # "train_batch_size" : $GLOBAL_BATCH,
 # 'offload_optimizer': 'cpu'
   # "train_batch_size" : $GLOBAL_BATCH,
@@ -487,7 +522,7 @@ gpt_args=(
   "--global-batch-size ${GLOBAL_BATCH}"
   "--seq-length ${SEQ_LEN}"
   "--max-position-embeddings ${SEQ_LEN}"
-  "--train-iters 5"
+  "--train-iters 10"
   "--lr-decay-iters 320000"
   "--num-workers 1"
   "$DATA_LOAD_ARGS"
@@ -503,15 +538,12 @@ gpt_args=(
   "--log-interval 1"
   "--save-interval 1000"
   "--eval-interval 1000"
-  "--eval-iters 1"
+  "--eval-iters 10"
   "--override-opt_param-scheduler"
   "--tensorboard-dir ${TENSORBOARD_DIR}"
   "--log-timers-to-tensorboard"
   "--tensorboard-log-interval 1"
-  # "${ARG_ENABLE_SEQUENCE_PARALLEL}"
 )
-# --tensorboard-log-interval 1" \
-# ${ARG_ENABLE_SEQUENCE_PARALLEL}
 
 # --recompute-activations \
 # --recompute-granularity full \
@@ -521,9 +553,7 @@ if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
   gpt_args+=(
     "--checkpoint-activations"
     "--checkpoint-num-layers 1"
-    # "${gpt_args[*]}"
   )
-    # --distribute-checkpointed-activations \
 fi
 
 if [[ "$DDP_IMPL" != "FSDP" ]] ; then
@@ -533,27 +563,18 @@ if [[ "$DDP_IMPL" != "FSDP" ]] ; then
   )
 else
   gpt_args+=(
-    # "${gpt_args[*]}"
     "--bf16"
   )
 fi
 
 if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
   gpt_args+=(
-    # "${gpt_args[*]}"
     "--use-flash-attn"
   )
-  # gpt_args="\
-  #   --use-flash-attn \
-  #   ${gpt_args}"
 fi
 
 if [[ "$USE_SEQUENCE_PARALLEL" == 1 ]]; then
-  # gpt_args="\
-  #   --sequence-parallel \
-  #   ${gpt_args}"
   gpt_args+=(
-    # "${gpt_args[*]}"
     "--sequence-parallel"
   )
 fi
@@ -563,9 +584,6 @@ if [[ "${SP_TYPE}" == "ds" ]]; then
     "--cpu-optimizer"
   )
 fi
-
-# OFFLOAD_DEVICE="cpu"
-# CPU_OPTIM=" --cpu-optimizer"
 
 export gpt_args=(
   "${gpt_args[*]}"
