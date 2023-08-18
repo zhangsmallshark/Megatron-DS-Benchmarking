@@ -16,7 +16,13 @@
 #   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 # done
 # DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
-#
+
+function FindMegatron() {
+  MEGATRON_DIR=$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))
+}
+
+[ "${MEGATRON_DIR}" ] && echo "Caught ${MEGATRON_DIR} from env" || FindMegatron
+ALCF_DIR="${MEGATRON_DIR}/ALCF"
 ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
 PARENT=$(dirname "${ALCF_DIR}")
 echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
@@ -117,8 +123,36 @@ if [[ ${SP_TYPE} == "ds" ]]; then
   # NOTE: --------------------------------------------------------------------------
   # SP_TYPE="ds" has NO effect, essentially running with no Seq. ||
   # --------------------------------------------------------------------------------
-  export SPSIZE="${WORLD_SIZE}"
-  export MPSIZE=1
+  USE_SEQUENCE_PARALLEL=0
+  if [[ "$MPSIZE" == "${WORLD_SIZE}" ]]; then
+    echo "Caught MPSIZE: $MPSIZE from env. Setting SPSIZE=1"
+    SPSIZE=1
+    MPSIZE="${MPSIZE}"
+  else
+    echo "Didn't catch MPSIZE from env. Setting SPSIZE=${WORLD_SIZE}, MPSIZE=1"
+    MPSIZE=1
+    SPSIZE="${WORLD_SIZE}"
+  fi
+  # if [[ "$MPSIZE" != 0 ]]; then
+  #   SPSIZE=$(( WORLD_SIZE - MPSIZE ))
+  #   echo "############################################################"
+  #   echo "Caught MPSIZE: $MPSIZE from env!"
+  #   echo "Setting SPSIZE: (${WORLD_SIZE} - ${MPSIZE}) = ${SPSIZE}"
+  #   echo "############################################################"
+  # else
+  #   MPSIZE=1
+  #   SPSIZE="$WORLD_SIZE"
+  #   echo "############################################################"
+  #   echo "Setting MPSIZE: $SPSIZE, SPSIZE: $WORLD_SIZE = $SPSIZE"
+  #   echo "############################################################"
+  # fi
+  # [ "$MPSIZE" ] && SPSIZE=1 || SPSIZE="${WORLD_SIZE}"
+  # [ "$SPSIZE" ] && MPSIZE=1 || MPSIZE="${}"
+  # [ "$MPSIZE" = "$WORLD_SIZE" ] && SPSIZE=1 || SPSIZE="$WORLD_SIZE"
+  # [ "$SPSIZE" = "$WORLD_SIZE" ] && MPSIZE=1 || MPSIZE="${WORLD_SIZE}"
+  # export SPSIZE="${WORLD_SIZE}"
+  export SPSIZE="${SPSIZE:-$WORLD_SIZE}"
+  export MPSIZE="${MPSIZE:-1}"
   export USE_SEQUENCE_PARALLEL=0
   if [ -z "${ZERO_STAGE}" ]; then
     echo "ZERO_STAGE not set, setting to 3 for ${SP_TYPE}"
@@ -151,7 +185,6 @@ elif [[ ${SP_TYPE} == "megatron" ]]; then
   export MPSIZE="${MPSIZE}"
   export ZERO_STAGE="${ZERO_STAGE}"
   export USE_SEQUENCE_PARALLEL="${USE_SEQUENCE_PARALLEL:-1}"
-  echo "${SP_TYPE} sequence parallelism with, SPSIZE: ${SPSIZE} USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL} !!"
   # if [[ "${SPSIZE}" == 0 ]]; then
   # [ "$SPSIZE" ] && USE_SEQUENCE_PARALLEL=1 || USE_SEQUENCE_PARALLEL=0
   #   echo "Caught SPSIZE=${SPSIZE} from env, with ${SP_TYPE} sequence parallelism"
@@ -173,15 +206,20 @@ else
 fi
 # ------------------------------------------------------------------------
 
-echo "+..................................................+"
-echo "| USING: ${SP_TYPE}" 
-echo "| SPSIZE: ${SPSIZE}"
-echo "| PPSIZE: ${SPSIZE}"
-echo "| MPSIZE: ${MPSIZE}"
-echo "| ZERO_STAGE: ${ZERO_STAGE}"
-echo "| WORLD_SIZE: ${WORLD_SIZE}"
-echo "| USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}"
-echo "+..................................................+"
+echo "####################################################"
+echo "# USING: ${SP_TYPE}" 
+echo "# SPSIZE: ${SPSIZE}"
+echo "# PPSIZE: ${SPSIZE}"
+echo "# MPSIZE: ${MPSIZE}"
+echo "# ZERO_STAGE: ${ZERO_STAGE}"
+echo "# WORLD_SIZE: ${WORLD_SIZE}"
+echo "# USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}"
+echo "####################################################"
+
+echo "########################################################"
+echo "| ${SP_TYPE} sequence parallelism, with: "
+echo "|     {MPSIZE: ${MPSIZE}, SPSIZE: ${SPSIZE}, USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}} !!"
+echo "########################################################"
 
 # GLOBAL_BATCH=1
 # GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
@@ -297,14 +335,15 @@ echo "!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!"
 
 # "zero_allow_untested_optimizer": false,
 # "train_batch_size" : $GLOBAL_BATCH,
+# "zero_force_ds_cpu_optimizer": false,
 if [[ $ZERO_STAGE == "3" ]] ; then
 cat <<EOT > "$DS_CONFIG"
 {
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
   "steps_per_print": 1,
   "wall_clock_breakdown" : true,
-  "zero_force_ds_cpu_optimizer": false,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
+  "gradient_clipping": 1.0,
   "zero_optimization": {
     "stage": 3,
     "stage3_max_live_parameters": 3e9,
@@ -315,15 +354,18 @@ cat <<EOT > "$DS_CONFIG"
     "overlap_comm": true,
     "reduce_bucket_size": 90000000,
     "sub_group_size": 5e7,
+    "offload_param": {
+      "device": "cpu",
+      "pin_memory": true
+    },
     "offload_optimizer": {
-      "device": "$OFFLOAD_DEVICE",
+      "device": "cpu",
       "buffer_count": 4,
       "pipeline_read": false,
       "pipeline_write": false,
       "pin_memory": true
     }
   },
-  "gradient_clipping": 1.0,
   "fp16": {
     "enabled": true,
     "initial_scale_power" : 12,
@@ -374,8 +416,11 @@ cat <<EOT > "$DS_CONFIG"
     "overlap_comm": true,
     "contiguous_gradients": true,
     "offload_optimizer": {
-      "device": "$OFFLOAD_DEVICE"
+      "device": "cpu"
     }
+  },
+  "optimizer": {
+    "type": "OneBitAdam"
   },
   "scheduler": {
    "type": "WarmupLR",
