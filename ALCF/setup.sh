@@ -1,14 +1,21 @@
 #!/bin/bash --login
 #
 # DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-SOURCE=${BASH_SOURCE[0]}
-while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
-  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-  SOURCE=$(readlink "$SOURCE")
-  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-done
-DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-PARENT=$(dirname "${DIR}")
+# SOURCE=${BASH_SOURCE[0]}
+# while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+#   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+#   SOURCE=$(readlink "$SOURCE")
+#   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+# done
+# DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+# PARENT=$(dirname "${DIR}")
+function WhereAmI() {
+  python3 -c 'import os; print(os.getcwd())'
+}
+
+HERE=$(WhereAmI)
+ALCF_DIR=$(find "${HERE}" -name "ALCF")
+PARENT=$(dirname "${ALCF_DIR}")
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 

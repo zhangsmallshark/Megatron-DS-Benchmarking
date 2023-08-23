@@ -13,8 +13,16 @@ HOST=$(hostname)
 # HERE=$(python3 -c 'import os; print(os.getcwd())')
 # ALCF_DIR="${HERE}/ALCF"
 #
-ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+#
+function WhereAmI() {
+  python3 -c 'import os; print(os.getcwd())'
+}
+USER=$(whoami)
+HERE=$(WhereAmI)
+ALCF_DIR=$(find "${HERE}" -name "ALCF")
 PARENT=$(dirname "${ALCF_DIR}")
+# ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+# PARENT=$(dirname "${ALCF_DIR}")
 
 echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
 echo "ALCF_DIR: ${ALCF_DIR}"

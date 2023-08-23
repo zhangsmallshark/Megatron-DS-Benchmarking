@@ -4,8 +4,16 @@ TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 
 # HERE=$(python3 -c 'import os; print(os.getcwd())')
 # ALCF_DIR="${HERE}/ALCF"
+#
+function WhereAmI() {
+  python3 -c 'import os; print(os.getcwd())'
+}
 
-ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
+HERE=$(WhereAmI)
+ALCF_DIR=$(find "${HERE}" -name "ALCF")
+
+
+# ALCF_DIR="$(dirname $(dirname $(python3 -c 'import megatron; print(megatron.__file__)' | tail -1)))/ALCF"
 echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
 echo "ALCF_DIR: ${ALCF_DIR}"
 echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
