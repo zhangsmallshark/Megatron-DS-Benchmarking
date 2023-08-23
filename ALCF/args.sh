@@ -30,20 +30,30 @@ echo "ALCF_DIR: ${ALCF_DIR}"
 echo "PARENT: ${PARENT}"
 echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
 
-
-if [[ $(hostname) == theta* ]]; then
-  echo "Setting up ThetaGPU from $(hostname)"
-  HOSTFILE="${COBALT_NODEFILE}"
-elif [[ $(hostname) == x* ]]; then
-  echo "Setting up Polaris from $(hostname)"
-  HOSTFILE="${PBS_NODEFILE}"
+if [[ $(hostname) == theta* || $(hostname) == x3* ]]; then
+  if [[ $(hostname) == theta* ]]; then
+    echo "Setting up ThetaGPU from $(hostname)"
+    HOSTFILE="${COBALT_NODEFILE}"
+  elif [[ $(hostname) == x3* ]]; then
+    echo "Setting up Polaris from $(hostname)"
+    HOSTFILE="${PBS_NODEFILE}"
+  else
+    echo "Unknown hostname $(hostname)"
+    exit 1
+  fi
+  NHOSTS=$(wc -l < "${HOSTFILE}")
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+elif [[ $(hostname) == nid* ]]; then
+  echo "Setting up from Perlmutter on $(hostname)"
+  NHOSTS="$SLURM_NNODES"
+  NGPU_PER_HOST="$SLURM_GPUS_ON_NODE"
+  NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
 else
   echo "Unexpected hostname $(hostname)"
+  exit 1
 fi
 
-NHOSTS=$(wc -l < "${HOSTFILE}")
-NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
 WORLD_SIZE="${NGPUS}"
 PARALLEL_SIZE="${WORLD_SIZE}"
 echo "NHOSTS * (NGPU / HOST) = $NHOSTS * $NGPU_PER_HOST = $NGPUS"
@@ -141,9 +151,6 @@ echo "${SP_TYPE} sequence parallelism, with: "
 echo "    {MPSIZE: ${MPSIZE}, SPSIZE: ${SPSIZE}, USE_SEQUENCE_PARALLEL: ${USE_SEQUENCE_PARALLEL}} !!"
 echo "########################################################"
 
-# GLOBAL_BATCH=1
-# GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE / $PPSIZE / $SPSIZE ))
-# GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
 GLOBAL_BATCH=$(( NGPUS * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS ))
 echo "GB = NGPUS * MB * GAS = ${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} = ${GLOBAL_BATCH}"
 

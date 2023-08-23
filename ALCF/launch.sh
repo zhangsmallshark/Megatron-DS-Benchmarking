@@ -126,23 +126,58 @@ fullNode() {
 # ┃ Use all available GPUs on all available nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 elasticDistributed() {
-  NHOSTS=$(wc -l < "${HOSTFILE}")
-  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  # NHOSTS=$(wc -l < "${HOSTFILE}")
+  # NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  # NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  #
+  if [[ $(hostname) == theta* || $(hostname) == x3* ]]; then
+    if [[ $(hostname) == theta* ]]; then
+      echo "Setting up ThetaGPU from $(hostname)"
+      HOSTFILE="${COBALT_NODEFILE}"
+    elif [[ $(hostname) == x3* ]]; then
+      echo "Setting up Polaris from $(hostname)"
+      HOSTFILE="${PBS_NODEFILE}"
+    else
+      echo "Unknown hostname $(hostname)"
+      exit 1
+    fi
+    NHOSTS=$(wc -l < "${HOSTFILE}")
+    NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+    NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+    EXEC_STR=(
+      "${MPI_COMMAND}"
+      "${MPI_DEFAULTS}"
+      "${MPI_ELASTIC}"
+      "$(which python3)"
+      "${MAIN}"
+      "${gpt_args}"
+      "${ds_args}"
+    )
+  elif [[ $(hostname) == nid* ]]; then
+    echo "Setting up from Perlmutter on $(hostname)"
+    NHOSTS="$SLURM_NNODES"
+    NGPU_PER_HOST="$SLURM_GPUS_ON_NODE"
+    NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+    export MACHINE="perlmutter"
+    export MASTER_ADDR="127.0.0.1"
+    export MASTER_PORT="5432"
+    EXEC_STR=(
+      "srun"
+      "-l -u"
+      "$(which python3)"
+      "${MAIN}"
+      "${gpt_args}"
+      "${ds_args}"
+    )
+  else
+    echo "Unexpected hostname $(hostname)"
+    exit 1
+  fi
   export WORLD_SIZE="${NGPUS}"
   echo "\
     Running on ${NHOSTS} hosts \
     with ${NGPU_PER_HOST} GPUs each \
     for a total of ${NGPUS} GPUs"
-  EXEC_STR=(
-    "${MPI_COMMAND}"
-    "${MPI_DEFAULTS}"
-    "${MPI_ELASTIC}"
-    "$(which python3)"
-    "${MAIN}"
-    "${gpt_args}"
-    "${ds_args}"
-  )
   EXEC="${EXEC_STR[*]}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts${NHOSTS}-ngpu${NGPUS}-$TSTAMP.log"
   echo "Writing logs to: ${OUTPUT_LOG}"
