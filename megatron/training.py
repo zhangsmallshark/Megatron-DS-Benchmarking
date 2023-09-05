@@ -61,15 +61,16 @@ def print_datetime(string):
     print_rank_0('[' + string + '] datetime: {} '.format(time_str))
 
 
-def pretrain(train_valid_test_dataset_provider,
-            model_provider,
-            model_type,
-            forward_step_func,
-            process_non_loss_data_func=None,
-            extra_args_provider=None,
-            args_defaults={},
-            data_post_process=None,
-            wbrun: Optional[Any] = None):
+def pretrain(
+        train_valid_test_dataset_provider,
+        model_provider,
+        model_type,
+        forward_step_func,
+        process_non_loss_data_func=None,
+        extra_args_provider=None,
+        args_defaults={},
+        data_post_process=None
+):
     """Main training program.
 
     This function will run the followings in the order provided:
@@ -199,7 +200,7 @@ def pretrain(train_valid_test_dataset_provider,
     print_rank_0('done with setup ...')
     timers.log(['model-and-optimizer-setup',
                 'train/valid/test-data-iterators-setup'], 
-                barrier=True, wbrun=wbrun)
+                barrier=True)
     print_rank_0('training ...')
 
     iteration = 0
@@ -212,7 +213,7 @@ def pretrain(train_valid_test_dataset_provider,
         iteration = train(forward_step_func,
                           model, optimizer, opt_param_scheduler,
                           train_data_iterator, valid_data_iterator,
-                          process_non_loss_data_func, wbrun=wbrun)
+                          process_non_loss_data_func)
     print_datetime('after training is done')
 
     if args.do_valid:
@@ -616,7 +617,7 @@ def setup_model_and_optimizer(model_provider_func,
             args.iteration = load_checkpoint(model, optimizer, lr_scheduler)
             torch.distributed.barrier()
             timers('load-checkpoint').stop()
-            timers.log(['load-checkpoint'], wbrun=wbrun)
+            timers.log(['load-checkpoint'])  # , wbrun=wbrun)
         else:
             args.iteration = 0
     else:
@@ -991,10 +992,21 @@ def train_step(forward_step_func, data_iterator,
 #     return report_memory_flag
 
 
-def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
-                 loss_scale, report_memory_flag, skipped_iter,
-                 grad_norm, params_norm, num_zeros_in_grad,
-                 model=None, optimizer=None, wbrun: Optional[Any] = None):
+def training_log(
+        loss_dict,
+        total_loss_dict,
+        learning_rate,
+        iteration,
+        loss_scale,
+        report_memory_flag,
+        skipped_iter,
+        grad_norm,
+        params_norm,
+        num_zeros_in_grad,
+        model=None,
+        optimizer=None,
+        # wbrun: Optional[Any] = None
+):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
@@ -1105,9 +1117,10 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             tdata[f'lm-loss/{key}'] = loss_dict[key]
 
         tdata = {f'train/{k}': v for k, v in tdata.items()}
-        if wbrun is not None and wbrun is wandb.run:
-            wbrun.log(tdata, commit=False)
-        if wbrun is not None and wbrun is wandb.run:
+        # if wbrun is not None and wbrun is wandb.run:
+        if wandb.run is not None:
+            wandb.run.log(tdata, commit=False)
+        if wandb.run is not None:
             tput = {
                 'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
                 'throughput/samples_per_sec': samples_per_sec,
@@ -1120,12 +1133,28 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 'throughput/token_consumption_rate': token_consumption_rate,
                 'throughput/elapsed_ms_per_iteration': elapsed_time_per_iteration,
             }
-            wbrun.log(tput)
+            wandb.run.log(tput)
 
-        writer.add_scalar('steps-vs-samples/y=steps,x=samples', iteration, args.consumed_train_samples)
-        writer.add_scalar('steps-vs-samples/y=samples,x=steps', args.consumed_train_samples, iteration)
-        writer.add_scalar('steps-vs-tokens/y=steps,x=tokens', iteration, args.consumed_train_tokens)
-        writer.add_scalar('steps-vs-tokens/y=tokens,x=steps', args.consumed_train_tokens, iteration)
+        writer.add_scalar(
+            'steps-vs-samples/y=steps,x=samples',
+            iteration,
+            args.consumed_train_samples
+        )
+        writer.add_scalar(
+            'steps-vs-samples/y=samples,x=steps',
+            args.consumed_train_samples,
+            iteration
+        )
+        writer.add_scalar(
+            'steps-vs-tokens/y=steps,x=tokens',
+            iteration,
+            args.consumed_train_tokens
+        )
+        writer.add_scalar(
+            'steps-vs-tokens/y=tokens,x=steps',
+            args.consumed_train_tokens,
+            iteration
+        )
         if args.log_learning_rate_to_tensorboard:
             writer.add_scalar('learning-rate/learning-rate', learning_rate, iteration)
             writer.add_scalar('learning-rate/learning-rate vs samples', learning_rate,
@@ -1169,24 +1198,48 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         if hasattr(args, 'actual_seq_length'):
             writer.add_scalar('seqlen/actual_seq_length', args.actual_seq_length,
                               iteration)
-            writer.add_scalar('seqlen/actual_seq_length vs samples', args.actual_seq_length,
-                              args.consumed_train_samples)
-            writer.add_scalar('seqlen/actual_seq_length vs tokens', args.actual_seq_length,
-                              args.consumed_train_tokens)
+            writer.add_scalar(
+                'seqlen/actual_seq_length vs samples',
+                args.actual_seq_length,
+                args.consumed_train_samples
+            )
+            writer.add_scalar(
+                'seqlen/actual_seq_length vs tokens',
+                args.actual_seq_length,
+                args.consumed_train_tokens
+            )
         if args.curriculum_learning_legacy or args.data_efficiency_curriculum_learning:
-            writer.add_scalar('seqlen/curriculum_seqlen', args.curriculum_seqlen,
-                              iteration)
-            writer.add_scalar('seqlen/curriculum_seqlen vs samples', args.curriculum_seqlen,
-                              args.consumed_train_samples)
-            writer.add_scalar('seqlen/curriculum_seqlen vs tokens', args.curriculum_seqlen,
-                              args.consumed_train_tokens)
+            writer.add_scalar(
+                'seqlen/curriculum_seqlen',
+                args.curriculum_seqlen,
+                iteration
+            )
+            writer.add_scalar(
+                'seqlen/curriculum_seqlen vs samples',
+                args.curriculum_seqlen,
+                args.consumed_train_samples
+            )
+            writer.add_scalar(
+                'seqlen/curriculum_seqlen vs tokens',
+                args.curriculum_seqlen,
+                args.consumed_train_tokens
+            )
         if args.random_ltd:
-            writer.add_scalar('seqlen/random_ltd_reserved_length', args.random_ltd_reserved_length,
-                              iteration)
-            writer.add_scalar('seqlen/random_ltd_reserved_length vs samples', args.random_ltd_reserved_length,
-                              args.consumed_train_samples)
-            writer.add_scalar('seqlen/random_ltd_reserved_length vs tokens', args.random_ltd_reserved_length,
-                              args.consumed_train_tokens)
+            writer.add_scalar(
+                'seqlen/random_ltd_reserved_length',
+                args.random_ltd_reserved_length,
+                iteration
+            )
+            writer.add_scalar(
+                'seqlen/random_ltd_reserved_length vs samples',
+                args.random_ltd_reserved_length,
+                args.consumed_train_samples
+            )
+            writer.add_scalar(
+                'seqlen/random_ltd_reserved_length vs tokens',
+                args.random_ltd_reserved_length,
+                args.consumed_train_tokens
+            )
         # if args.log_timers_to_tensorboard:
         # if timers is not None and args.log_timers_to_tensorboard:
         #     print_rank_0('Caught timers, writing...')
@@ -1197,9 +1250,14 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         #         normalizer=total_iterations,
         #         wbrun=wbrun
         #     )
-            # if wbrun is not None and wbrun is wandb.run:
-            #     wbrun.log(data)
-            # timers.track(names, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
+        # if wbrun is not None and wbrun is wandb.run:
+        #     wbrun.log(data)
+        # timers.track(
+        #     names,
+        #     iteration=iteration,
+        #     normalizer=total_iterations,
+        #     wbrun=wbrun
+        # )
 
     if iteration % args.tensorboard_log_interval == 0:
         # This logging write various optimizer states to tensorboard. This
@@ -1369,10 +1427,17 @@ def save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler):
     timers.log(['save-checkpoint'])
 
 
-def train(forward_step_func, model, optimizer, opt_param_scheduler,
-          train_data_iterator, valid_data_iterator,
-          process_non_loss_data_func, wbrun: Optional[Any] = None):
+def train(
+        forward_step_func,
+        model,
+        optimizer,
+        opt_param_scheduler,
+        train_data_iterator,
+        valid_data_iterator,
+        process_non_loss_data_func
+):
     """Train the model function."""
+    # wbrun: Optional[Any] = None):
     args = get_args()
     timers = get_timers()
 
@@ -1457,11 +1522,19 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         params_norm = None
         if args.log_params_norm:
             params_norm = calc_params_l2_norm(model)
-        report_memory_flag = training_log(loss_dict, total_loss_dict,
-                                        optimizer.param_groups[0]['lr'],
-                                        iteration, loss_scale,
-                                        report_memory_flag, skipped_iter,
-                                        grad_norm, params_norm, num_zeros_in_grad, wbrun=wbrun)
+        report_memory_flag = training_log(
+            loss_dict,
+            total_loss_dict,
+            optimizer.param_groups[0]['lr'],
+            iteration,
+            loss_scale,
+            report_memory_flag,
+            skipped_iter,
+            grad_norm,
+            params_norm,
+            num_zeros_in_grad,
+            # wbrun=wbrun
+        )
 
         # Autoresume
         if args.adlr_autoresume and \
