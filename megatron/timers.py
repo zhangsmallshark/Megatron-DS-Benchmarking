@@ -5,11 +5,10 @@
 from abc import ABC
 from abc import abstractmethod
 import time
-from typing import Sequence, Optional, Any
+from typing import Sequence
 import wandb
 
 import torch
-
 
 
 class TimerBase(ABC):
@@ -268,7 +267,7 @@ class Timers:
             iteration: int,
             normalizer: float = 1.0,
             reset=False,
-            wbrun: Optional[Any] = None
+            # wbrun: Optional[Any] = None
     ):
         assert normalizer > 0.0
         data = {
@@ -278,12 +277,20 @@ class Timers:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             data[f'timers/{name}'] = value
 
-        if wbrun is not None and wbrun is wandb.run:
-            wbrun.log(data)
+        # if wbrun is not None and wbrun is wandb.run:
+        if wandb.run is not None:
+            wandb.run.log(data)
 
-    def log(self, names, rank=None, normalizer=1.0, reset=True, barrier=False, wbrun: Optional[Any] = None):
+    def log(
+            self,
+            names,
+            rank=None,
+            normalizer=1.0,
+            reset=True,
+            barrier=False,
+            # wbrun: Optional[Any] = None
+    ):
         """Log a group of timers."""
-
         # Print.
         assert normalizer > 0.0
         if self._log_option in ['max', 'minmax']:
@@ -312,14 +319,24 @@ class Timers:
             rank = torch.distributed.get_world_size() - 1
         if rank == torch.distributed.get_rank() and output_string is not None:
             print(output_string, flush=True)
-            try:
-                wbrun.log(data)
-            except Exception:
-                pass
+            if wandb.run is not None:
+                wandb.run.log(data)
+            # try:
+            #     wandb.run.log(data)
+            # except Exception:
+            #     pass
 
 
-    def write(self, names, writer, iteration, normalizer=1.0,
-              reset=False, barrier=False, wbrun: Optional[Any] = None,):
+    def write(
+            self,
+            names,
+            writer,
+            iteration,
+            normalizer=1.0,
+            reset=False,
+            barrier=False,
+            # wbrun: Optional[Any] = None,
+        ):
         """Write timers to a tensorboard writer
         Note that we only report maximum time across ranks to tensorboard.
         """
@@ -336,5 +353,6 @@ class Timers:
                 writer.add_scalar(name + '-time', max_time, iteration)
                 data[f'timers/{name}'] = max_time
 
-        if wbrun is not None and wbrun is wandb.run:
-            wbrun.log(data)
+        # if wbrun is not None and wbrun is wandb.run:
+        if wandb.run is not None:
+            wandb.run.log(data)
