@@ -39,19 +39,21 @@ if [[ $(hostname) == theta* || $(hostname) == x3* ]]; then
     HOSTFILE="${PBS_NODEFILE}"
   else
     echo "Unknown hostname $(hostname)"
-    exit 1
+    # exit 1
   fi
   NHOSTS=$(wc -l < "${HOSTFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
   NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
-elif [[ $(hostname) == nid* ]]; then
+elif [[ $(hostname) == nid*  || $(hostname) == login* ]]; then
   echo "Setting up from Perlmutter on $(hostname)"
-  NHOSTS="$SLURM_NNODES"
-  NGPU_PER_HOST="$SLURM_GPUS_ON_NODE"
+  [ "$SLURM_NNODES" ] && NHOSTS="$SLURM_NNODES" || NHOSTS=1
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  # NHOSTS="$SLURM_NNODES"
+  # NGPU_PER_HOST="$SLURM_GPUS_ON_NODE"
   NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
 else
   echo "Unexpected hostname $(hostname)"
-  exit 1
+  # exit 1
 fi
 
 WORLD_SIZE="${NGPUS}"
@@ -132,7 +134,7 @@ elif [[ ${SP_TYPE} == "megatron" ]]; then
   export USE_SEQUENCE_PARALLEL="${USE_SEQUENCE_PARALLEL:-1}"
 else
   echo "Unexpected SP_TYPE: ${SP_TYPE}"
-  exit 1
+  # exit 1
 fi
 # ------------------------------------------------------------------------
 
