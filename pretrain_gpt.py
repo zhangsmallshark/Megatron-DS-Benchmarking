@@ -6,13 +6,13 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch import distributed as ptdist
-from dist import setup_torch
 
 from functools import partial
 from megatron import get_args
 from megatron import print_rank_0
 from megatron import get_timers
 from megatron import get_tokenizer
+from megatron.dist import setup_torch
 from megatron.core import mpu, tensor_parallel
 from megatron.core.enums import ModelType
 from megatron.data.gpt_dataset import build_train_valid_test_datasets

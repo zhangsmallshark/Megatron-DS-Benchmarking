@@ -2,12 +2,14 @@
 
 """Pretrain BERT"""
 
+import os
 from functools import partial
 
 import torch
 import torch.nn.functional as F
 
 from megatron import get_args
+from megatron.dist import setup_torch
 from megatron import print_rank_0
 from megatron import get_timers
 from megatron.core import mpu, tensor_parallel
@@ -17,9 +19,21 @@ from megatron.model import BertModel
 from megatron.training import pretrain
 from megatron.utils import average_losses_across_data_parallel_group
 
+import logging
 import deepspeed
+from pathlib import Path
 
 from pytorch_memlab import MemReporter
+
+log = logging.getLogger(__name__)
+HERE = Path(os.path.abspath(__file__)).parent
+
+setup_torch(
+    backend='deepspeed',
+    port='5432',
+)
+log.info(f'Hello from {ptdist.get_rank()} / {ptdist.get_world_size()}')
+
 
 def is_rank_0():
     # if torch.distributed.get_rank() == 0:
