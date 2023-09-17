@@ -6,13 +6,13 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch import distributed as ptdist
-from dist import setup_torch
 
 from functools import partial
 from megatron import get_args
 from megatron import print_rank_0
 from megatron import get_timers
 from megatron import get_tokenizer
+from megatron.dist import setup_torch
 from megatron.core import mpu, tensor_parallel
 from megatron.core.enums import ModelType
 from megatron.data.gpt_dataset import build_train_valid_test_datasets
@@ -34,9 +34,9 @@ import wandb
 from pathlib import Path
 import socket
 
+
 log = logging.getLogger(__name__)
 HERE = Path(os.path.abspath(__file__)).parent
-
 
 setup_torch(
     backend='deepspeed',
@@ -53,25 +53,24 @@ def is_first_rank():
     return get_rank() == 0
 
 
-WBRUN = None
+# WBRUN = None
 if is_first_rank():
     tensorboard_dir = os.environ.get('TENSORBOARD_DIR', None)
     if tensorboard_dir is not None:
         log.info(f'Patching tensorboard from {tensorboard_dir}')
         wandb.tensorboard.patch(root_logdir=tensorboard_dir)
-    
     # wbrun_id = wandb.util.generate_id()
     current_time = time.time()
     local_time = time.localtime(current_time)
     # os.environ['WANDB_RUN_GROUP'] = f'experiment-{generate_id()}'
-    seq_len = os.environ.get('SEQ_LEN', 1)
-    seq_len = int(seq_len) // 1024
-    global_batch = os.environ.get('GLOBAL_BATCH', 1)
-    mp_size = os.environ.get('MPSIZE', 1)
-    pp_size = os.environ.get('PPSIZE', 1)
-    world_size = ptdist.get_world_size()
-    WBRUN = wandb.init(
-        project='Megatron-DS1',
+    # seq_len = os.environ.get('SEQ_LEN', 1)
+    # seq_len = int(seq_len) // 1024
+    # global_batch = os.environ.get('GLOBAL_BATCH', 1)
+    # mp_size = os.environ.get('MPSIZE', 1)
+    # pp_size = os.environ.get('PPSIZE', 1)
+    # world_size = ptdist.get_world_size()
+    wandb.init(
+        project='Megatron-DS-Benchmarking',
         sync_tensorboard=True,
         dir=tensorboard_dir,
         resume='allow',
@@ -80,29 +79,32 @@ if is_first_rank():
         # group=f'experiment-{generate_id()}'
         # group='long-seq-ANL0',
         # name=f'{seq_len}kseq-len-no-seq-parallel-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
-        name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
+        # name=f'{seq_len}kseq-len-new-{global_batch}global-batch-{world_size}GPUs-{mp_size}MP-{pp_size}PP-{local_time.tm_hour}-{local_time.tm_min}'
     )
-    assert WBRUN is not None and WBRUN is wandb.run
+    assert wandb.run is not None
+    # assert WBRUN is not None and WBRUN is wandb.run
     wandb.run.log_code(HERE.as_posix())  # type:ignore
-    # WBRUN.log_code(HERE.as_posix())
+    # wandb.run.config.update({'current_time': current_time})
+    wandb.run.config.update({'current_time': current_time})
     model_size = os.environ.get('MODEL_SIZE', None)
     if model_size is not None:
-        WBRUN.config.update({'MODEL_SIZE': model_size})
-    if WBRUN is not None:
-        assert WBRUN is wandb.run
-        WBRUN.config.update({'world_size': ptdist.get_world_size()})
+        wandb.run.config.update({'MODEL_SIZE': model_size})
+    if wandb.run is not None:
+        wandb.run.config.update({'world_size': ptdist.get_world_size()})
         env = dict(os.environ)
         _ = env.pop('LS_COLORS', None)
-        WBRUN.config.update({'env': env})
+        wandb.run.config.update({'env': env})
         hostname = socket.gethostbyaddr(socket.gethostname())[0]
         if hostname.startswith('theta'):
-            WBRUN.config.update({'machine': 'ThetaGPU'})
+            wandb.run.config.update({'machine': 'ThetaGPU'})
         elif hostname.startswith('x3'):
-            WBRUN.config.update({'machine': 'Polaris'})
+            wandb.run.config.update({'machine': 'Polaris'})
         elif hostname.startswith('x1'):
-            WBRUN.config.update({'machine': 'Sunspot'})
+            wandb.run.config.update({'machine': 'Sunspot'})
+        elif hostname.startswith('nid'):
+            wandb.run.config.update({'machine': 'Perlmutter'})
         else:
-            WBRUN.config.update({'machine': hostname})
+            wandb.run.config.update({'machine': hostname})
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -111,8 +113,8 @@ def model_provider(pre_process=True, post_process=True):
     print_rank_0('building GPT model ...')
     see_memory_usage(f"Before Building Model", force=True)
     args = get_args()
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.config.update(vars(args))
+    if wandb.run is not None:
+        wandb.run.config.update(vars(args))
 
     with deepspeed.zero.Init(
             data_parallel_group=mpu.get_data_parallel_group(),
@@ -130,12 +132,15 @@ def model_provider(pre_process=True, post_process=True):
             # We need to call model.set_batch_fn after deepspeed.initialize
             model._megatron_batch_fn = get_batch_pipe
 
-            # Predompute the attention mask and store it in args. This avoids having to
+            # Precompute the attention mask and store it in args. This avoids having to
             # pipeline it as an activation during training. The mask is constant, and thus
             # we can reuse it.
-            attention_mask = torch.tril(torch.ones(
-                (1, args.seq_length, args.seq_length), device=get_accelerator().current_device_name())).view(
-                    1, 1, args.seq_length, args.seq_length)
+            attention_mask = torch.tril(
+                torch.ones(
+                    (1, args.seq_length, args.seq_length),
+                    device=get_accelerator().current_device_name()
+                )
+            ).view(1, 1, args.seq_length, args.seq_length)
 
             # Convert attention mask to binary:
             attention_mask = (attention_mask < 0.5)
@@ -153,16 +158,18 @@ def model_provider(pre_process=True, post_process=True):
                 pre_process=pre_process,
                 post_process=post_process
             )
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.watch(
+    # if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+    if wandb.run is not None:
+        wandb.run.watch(
             model,
             log='all',
             log_graph=True,
         )
 
     see_memory_usage(f"After Building Model", force=True)
-
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if wandb.run is not None:
+        wandb.run.config.update({'num_params': num_params})
     print_rank_0('\n ------------------------ ')
     print_rank_0(f'num of parameters {num_params}')
     print_rank_0('------------------------\n ')
@@ -197,7 +204,8 @@ def get_batch(data_iterator):
         tokenizer.eod,
         args.reset_position_ids,
         args.reset_attention_mask,
-        args.eod_mask_loss)
+        args.eod_mask_loss
+    )
 
     # for sequence parallel
     world_rank = torch.distributed.get_rank()
@@ -302,8 +310,8 @@ def loss_func(loss_mask, moe_loss, mos_loss, output_tensor):
 
     # Reduce loss for logging.
     averaged_loss = average_losses_across_data_parallel_group([loss])
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.log({'averaged_loss/averaged_loss': averaged_loss[0]})
+    if is_first_rank() and wandb.run is not None:
+        wandb.run.log({'averaged_loss/averaged_loss': averaged_loss[0]})
 
     if args.mos or args.kd:
         # assert max(args.num_experts) >= 1
@@ -357,8 +365,8 @@ def forward_step(data_iterator, model):
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
     timers('batch-generator').stop()
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.log({'timers/batch-generator': time.time() - t0})
+    if is_first_rank() and wandb.run is not None:
+        wandb.run.log({'timers/batch-generator': time.time() - t0})
 
     if args.data_efficiency_curriculum_learning:
         args.curriculum_seqlen = tokens.size()[1]
@@ -392,8 +400,8 @@ def forward_step(data_iterator, model):
             mos_loss = calculate_mos_loss(args, stu_output,
                 args.teacher_model[0], tokens, position_ids, attention_mask)
     
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.log({'timers/forward_step': time.time() - t0})
+    if is_first_rank() and wandb.run is not None:
+        wandb.run.log({'timers/forward_step': time.time() - t0})
     # Output_tensor stores the standard loss, loos_func calculates the total loss.
     return output_tensor, partial(loss_func, loss_mask, moe_loss, mos_loss)
 
@@ -464,14 +472,14 @@ def main():
         forward_step,
         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
         data_post_process=data_post_process,
-        wbrun=WBRUN
+        # wbrun=WBRUN
     )
     dist.log_summary()
-    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
-        WBRUN.log({'pretrain_time/pretrain_time': time.time() - t0})
-        WBRUN.finish()
+    # if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+    if is_first_rank() and wandb.run is not None:
+        wandb.run.log({'pretrain_time/pretrain_time': time.time() - t0})
+        wandb.run.finish()
 
 
 if __name__ == "__main__":
-    wandb.require(experiment='service')
     main()

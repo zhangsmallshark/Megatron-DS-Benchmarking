@@ -266,7 +266,6 @@ def throughput_calculator(model, args, iteration_time, total_iterations):
         seq_len = args.actual_seq_length
     flops_per_iteration = (24 * checkpoint_activations_factor * batch_size * seq_len * num_layers * (hidden_size**2)) * (1. + (seq_len / (6. * hidden_size)) + (vocab_size / (16. * num_layers * hidden_size)))
     tflops = flops_per_iteration / (elapsed_time_per_iter * args.world_size * (10**12))
-
     # print(f"throughput_calculator flops_per_iteration={flops_per_iteration}"
     #       + f" checkpoint_activations_factor={checkpoint_activations_factor}"
     #       + f" batch_size={batch_size}"

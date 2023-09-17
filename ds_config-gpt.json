@@ -1,11 +1,11 @@
 {
-  "train_batch_size" : 1,
   "train_micro_batch_size_per_gpu": 1,
   "gradient_accumulation_steps": 1,
   "steps_per_print": 1,
   "wall_clock_breakdown" : true,
+  "zero_force_ds_cpu_optimizer": false,
   "zero_optimization": {
-    "stage": 2,
+    "stage": 1,
     "allgather_partitions": true,
     "reduce_scatter": true,
     "allgather_bucket_size": 5e8,
@@ -20,6 +20,14 @@
       "device": "cpu",
       "nvme_path": "/raid/scratch/"
     }
+  },
+  "scheduler": {
+   "type": "WarmupLR",
+   "params": {
+     "warmup_min_lr": 0,
+     "warmup_max_lr": 0.001,
+     "warmup_num_steps": 1000
+   }
   },
   "fp16": {
     "enabled": true,
@@ -40,8 +48,7 @@
     "debug": false
   },
   "wandb": {
-    "enabled": false,
-    "group": "megatron-DS0",
-    "project": "megatron-DS"
+    "enabled": true,
+    "project": "Megatron-DS-Benchmarking"
   }
 }
